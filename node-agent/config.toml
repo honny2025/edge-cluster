@@ -1,0 +1,57 @@
+# 手机端节点 Agent 配置。
+# 可整目录拷进 Termux 使用；所有项都有默认值。
+# 环境变量覆盖规则：EDGE_AGENT__TOKEN=xxx（双下划线分隔 section 与 key）
+
+[agent]
+# 留空则首次启动自动生成并回写本文件（形如 phone-a1b2c3d4）
+node_id = ""
+# 留空则使用 node_id
+name = "phone-02"
+# 必须与平台 server.token 一致
+token = "edge-cluster-dev-token"
+# 心跳间隔（秒）
+heartbeat_interval = 5
+# 平台地址。留空 = 走 UDP 自动发现；填了 = 直连（"手工填 IP 兜底"）
+# 例：platform_url = "http://192.168.1.100:8000"
+platform_url = ""
+platform_port = 8000
+
+[discovery]
+enabled = true
+port = 37020
+broadcast_addr = "255.255.255.255"
+# 广播次数与间隔
+attempts = 3
+interval = 1.0
+# 单次等待响应的超时
+timeout = 1.5
+
+[reconnect]
+# 指数退避：base * 2^n，封顶 max_delay，带 jitter 抖动
+base_delay = 1.0
+max_delay = 60.0
+jitter = 0.2
+
+[storage]
+models_dir = "./models"
+logs_dir = "./logs"
+log_max_bytes = 5242880      # 单文件 5MB 后滚动
+log_backup_count = 3
+
+[service]
+health_timeout = 60          # 启动后等待健康检查通过的上限（秒）
+health_fail_threshold = 3    # 连续失败 N 次判 error
+health_interval = 3          # 健康检查轮询间隔（秒）
+restart_backoff = 3          # 崩溃自动拉起的退避（秒）
+stop_grace = 5               # 停止时先 terminate 等多久再 kill（秒）
+
+[simulate]
+enabled = false              # --simulate 时自动置 true
+# 设备信息（模拟器用；真机从 getprop 读）
+model = "Xiaomi 13"
+soc = "Snapdragon 8 Gen 2"
+android_version = "14"
+# 模拟行为开关
+fail_download_once = false   # 首次下载到 50% 主动中断（验收 M3 用）
+crash_service_after = 0      # >0 时服务启动 N 秒后模拟崩溃（验收 M4 用）
+disconnect_after = 0         # >0 时运行 N 秒后模拟断线（验收 M1 用）

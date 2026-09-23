@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# Git 属性配置 —— 统一换行符与二进制处理
+#
+# 本项目对换行符有硬要求（踩过坑，见 CONTRIBUTING.md §5.6）：
+#   .ps1  必须 UTF-8 with BOM            → .gitattributes 管不了 BOM，靠约定
+#   .sh   必须无 BOM + LF                → 这里强制 LF
+#   .bat  必须纯 ASCII + CRLF            → 这里强制 CRLF
+# ---------------------------------------------------------------------------
+
+# 默认：自动处理换行符，仓库内统一 LF
+* text=auto eol=lf
+
+# --- Windows 脚本 -----------------------------------------------------------
+# .ps1 用 LF 即可（PowerShell 两种都认），但必须有 BOM —— BOM 由编辑器保证
+*.ps1   text eol=lf
+# .bat 必须是 CRLF，否则某些老版本 cmd 会出问题
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# --- Unix 脚本 --------------------------------------------------------------
+# 有 CRLF 会报 "bad interpreter"，必须锁定 LF
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# --- 源码 -------------------------------------------------------------------
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+
+# --- 二进制（Git 不应当做文本处理 / diff）------------------------------------
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   text eol=lf
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.7z    binary
+*.gguf  binary
+*.onnx  binary
+*.mnn   binary
+*.bin   binary
+*.db    binary
+*.sqlite binary
+*.pyc   binary
+
+# --- 生成物：diff 时视为不可读，避免噪音 -------------------------------------
+web/dist/*            linguist-generated=true
+web/package-lock.json linguist-generated=true
+*.tsbuildinfo         linguist-generated=true
+docs/screenshots/*    linguist-documentation=true
+
+# --- 语言统计（让 GitHub 的 Language bar 更准确）-----------------------------
+web/dist/*      linguist-vendored
+docs/*          linguist-documentation

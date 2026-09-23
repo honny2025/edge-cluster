@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 操作说明书
+    url: https://github.com/honny/edge-cluster/blob/main/docs/user-manual.md
+    about: 怎么用、要准备什么、注意事项 —— 使用问题请先看这里
+  - name: 🗺️ 路线图
+    url: https://github.com/honny/edge-cluster/blob/main/ROADMAP.md
+    about: 后续计划与已识别的待决策项，提建议前先看一眼
+  - name: ⚠️ 需求评审与优化建议
+    url: https://github.com/honny/edge-cluster/blob/main/docs/design/requirement-review.md
+    about: 10 条待决策项（O1~O10），打算改代码前必读
+  - name: 🔒 报告安全问题
+    url: https://github.com/honny/edge-cluster/security/advisories/new
+    about: 安全问题请走私密渠道，不要开公开 Issue

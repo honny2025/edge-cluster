@@ -1,0 +1,43 @@
+# EditorConfig —— 统一编辑器行为
+# https://editorconfig.org
+#
+# 注：本项目的 .ps1 需要 UTF-8 with BOM、.bat 需要 CRLF，
+#     EditorConfig 管不了 BOM，那两项靠 CONTRIBUTING.md §5.6 的约定。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# --- Python -----------------------------------------------------------------
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# --- 前端 -------------------------------------------------------------------
+[*.{ts,tsx,js,jsx,json,css,html}]
+indent_size = 2
+
+[*.{yml,yaml}]
+indent_size = 2
+
+# --- Markdown：不要自动去尾随空格（两个空格 = 换行）--------------------------
+[*.md]
+trim_trailing_whitespace = false
+
+# --- Windows 脚本 -----------------------------------------------------------
+[*.{bat,cmd}]
+end_of_line = crlf
+charset = ascii
+
+[*.ps1]
+end_of_line = lf
+
+# --- 别碰这些 ---------------------------------------------------------------
+[{package-lock.json,tsconfig.tsbuildinfo}]
+insert_final_newline = false

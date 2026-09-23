@@ -1,0 +1,62 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: #14181f;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+/* 状态点：在线绿 / 离线红 / 从未上线灰 —— 醒目且不依赖颜色单通道 */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.status-dot.online {
+  background: #52c41a;
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2);
+}
+.status-dot.offline {
+  background: #ff4d4f;
+  box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.2);
+}
+.status-dot.never_seen {
+  background: #8c8c8c;
+  box-shadow: 0 0 0 3px rgba(140, 140, 140, 0.18);
+}
+
+/*
+ * 离线节点整行压暗。
+ * 目的：让"这台不在线"在一眼扫过时就成立，而不是要读者去比对状态标签 ——
+ * 离线节点上残留的任何数值都容易被误读成"当前值"。
+ */
+.row-offline {
+  opacity: 0.62;
+}
+.row-offline td {
+  background: rgba(255, 77, 79, 0.04) !important;
+}
+
+/* 数值/时间列等宽，避免刷新时宽度跳动造成视觉抖动 */
+.mono,
+.ant-table-cell .mono {
+  font-variant-numeric: tabular-nums;
+}
