@@ -151,3 +151,6 @@ $RECYCLE.BIN/
 # Linux
 *~
 .directory
+
+# TypeScript 增量编译缓存（构建产物，不提交）
+*.tsbuildinfo
