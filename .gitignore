@@ -69,10 +69,20 @@ coverage.xml
 server/data/
 node-agent/state/
 node-agent/logs/
+# Rust 版（v0.5.0-m5 起）的同类运行时数据
+server-rust/data/
+node-agent-rust/state/
+node-agent-rust/logs/
 node-agent/models/*.gguf
 node-agent/models/*.onnx
 node-agent/models/*.mnn
 node-agent/models/*.bin
+
+# 验收脚本的产物 —— m6_model_deploy_check 会往 models/ 里写配置文件，
+# m5_selfheal_check 会在 acceptance/ 里落一份中间状态。跑完记得清掉，
+# 别让它们混进交付包（pack_portable.py 只按后缀跳过 .bin，认不出 .json）。
+node-agent/models/m6-config-*.json
+docs/acceptance/_m5_state.json
 
 # 一键脚本产生的 PID 文件
 .running.pids

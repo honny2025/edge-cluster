@@ -191,9 +191,12 @@ export default function Dashboard() {
     ...(
       [
         { title: 'CPU', key: 'cpu', color: METRIC_COLORS.cpu, pct: true },
+        { title: 'NPU', key: 'npu', color: METRIC_COLORS.npu, pct: true },
         { title: '内存', key: 'mem', color: METRIC_COLORS.mem, pct: true },
         { title: '存储', key: 'storage', color: METRIC_COLORS.storage, pct: true },
         { title: '温度', key: 'temp', color: METRIC_COLORS.temp, pct: false },
+        // 电量是一等指标：手机靠电池跑，没电的节点和离线的节点对用户是同一件事
+        { title: '电量', key: 'battery', color: '#52c41a', pct: true },
       ] as const
     ).map((col) => ({
       title: col.title,
@@ -207,9 +210,11 @@ export default function Dashboard() {
         }
         let val: number | null = null
         if (col.key === 'cpu') val = m.cpu_usage
+        else if (col.key === 'npu') val = m.npu_usage
         else if (col.key === 'mem') val = ratio(m.mem_used, m.mem_total)
         else if (col.key === 'storage') val = ratio(m.storage_used, m.storage_total)
         else if (col.key === 'temp') val = m.temperature
+        else if (col.key === 'battery') val = m.battery_percent
         if (val === null || val === undefined) {
           return <span style={{ color: '#5a5a5a' }}>—</span>
         }

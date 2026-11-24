@@ -25,9 +25,14 @@ DISCOVER_REQ = "EDGE_DISCOVER"
 DISCOVER_ACK = "EDGE_DISCOVER_ACK"
 
 
-def discover_platform(cfg: Any, token: str, agent_version: str, name: str = "") -> str | None:
-    """广播发现平台，返回平台 HTTP 基地址（如 http://192.168.1.100:8000），失败返回 None。"""
-    if cfg.agent.platform_url:
+def discover_platform(cfg: Any, token: str, agent_version: str, name: str = "", force: bool = False) -> str | None:
+    """广播发现平台，返回平台 HTTP 基地址（如 http://192.168.1.100:8000），失败返回 None。
+
+    `force=True` 时忽略配置里的 platform_url，强制走一次 UDP 广播。
+    用于「平台换 IP 后重新发现」：配置里的 platform_url 只是上次已知地址，
+    不能因为填过它就永远钉死旧 IP。
+    """
+    if cfg.agent.platform_url and not force:
         log.info("配置中已指定平台地址，跳过 UDP 发现: %s", cfg.agent.platform_url)
         return cfg.agent.platform_url.rstrip("/")
 

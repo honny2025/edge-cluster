@@ -5,7 +5,15 @@ import { api } from '../api'
 import { NODE_EVENT } from '../App'
 import { HeartbeatText, NodeStatusTag } from '../components/NodeStatusTag'
 import { humanDuration } from '../utils/format'
-import type { NodeInfo, NodeStatus } from '../types'
+import type { MetricSample, NodeInfo, NodeStatus } from '../types'
+
+/** NPU 型号长名 → 短名，列表里更紧凑。 */
+function shortNpu(npu: string): string {
+  if (npu.includes('Hexagon')) return 'Hexagon NPU'
+  if (npu.includes('APU')) return 'MediaTek APU'
+  if (npu.includes('NPU')) return 'NPU'
+  return npu
+}
 
 /** 节点列表页：支持状态过滤、改名、删除。 */
 export default function Nodes() {
@@ -14,6 +22,9 @@ export default function Nodes() {
   const [filter, setFilter] = useState<NodeStatus | 'all'>('all')
   const [editing, setEditing] = useState<string | null>(null)
   const [nameDraft, setNameDraft] = useState('')
+  // 各节点最新指标（含电量 / NPU 使用率）。来自 overview 的 nodes_metrics，
+  // 离线或采样陈旧的节点后端会返回 null，这里对应显示 "—"。
+  const [metrics, setMetrics] = useState<Record<string, MetricSample | null>>({})
   const navigate = useNavigate()
 
   const load = useCallback(async (showSpin = false) => {
@@ -39,6 +50,22 @@ export default function Nodes() {
     window.addEventListener(NODE_EVENT, handler)
     return () => window.removeEventListener(NODE_EVENT, handler)
   }, [load])
+
+  // 拉取各节点最新指标，供「电量 / NPU」列展示。
+  const loadMetrics = useCallback(async () => {
+    try {
+      const d = await api.overview()
+      setMetrics(d.nodes_metrics ?? {})
+    } catch {
+      /* 拉取失败保留上次数据，避免页面闪空 */
+    }
+  }, [])
+
+  useEffect(() => {
+    loadMetrics()
+    const t = window.setInterval(loadMetrics, 5000)
+    return () => window.clearInterval(t)
+  }, [loadMetrics])
 
   const saveName = async (nodeId: string) => {
     const name = nameDraft.trim()
@@ -109,6 +136,59 @@ export default function Nodes() {
       render: (s: NodeStatus) => <NodeStatusTag status={s} />,
     },
     {
+      title: '电量',
+      key: 'battery',
+      width: 96,
+      render: (_: unknown, row: NodeInfo) => {
+        const m = metrics[row.node_id]
+        // overview 接口的电量/状态在 extra 里，不在顶层（public_json 只留了 12 个核心字段）
+        const extra = m?.extra
+        const pct =
+          extra && typeof extra.battery_percent === 'number'
+            ? (extra.battery_percent as number)
+            : undefined
+        if (pct == null) {
+          return <span style={{ color: '#8c8c8c' }}>—</span>
+        }
+        const color = pct <= 20 ? '#ff4d4f' : pct <= 50 ? '#faad14' : '#2ea043'
+        const status = String(extra?.battery_status ?? '').toLowerCase()
+        const charging = status === 'charging' || status === 'full'
+        return (
+          <Space size={4}>
+            <span className="mono" style={{ color, fontSize: 13 }}>
+              {pct.toFixed(0)}%
+            </span>
+            {charging && (
+              <span style={{ fontSize: 12, color: '#2ea043' }} title="充电中">
+                ⚡
+              </span>
+            )}
+          </Space>
+        )
+      },
+    },
+    {
+      title: 'NPU',
+      key: 'npu',
+      width: 120,
+      render: (_: unknown, row: NodeInfo) => {
+        const m = metrics[row.node_id]
+        const usage = m?.npu_usage
+        const name = row.npu && row.npu !== 'Unknown' ? shortNpu(row.npu) : ''
+        return (
+          <Space direction="vertical" size={0}>
+            <span
+              className="mono"
+              style={{ fontSize: 13, color: usage == null ? '#8c8c8c' : '#4f9cf9' }}
+            >
+              {usage == null ? '—' : `${usage.toFixed(0)}%`}
+            </span>
+            {name && <span style={{ fontSize: 11, color: '#8c8c8c' }}>{name}</span>}
+          </Space>
+        )
+      },
+    },
+    {
       title: '最后心跳',
       dataIndex: 'last_heartbeat',
       key: 'hb',
@@ -127,6 +207,20 @@ export default function Nodes() {
     },
     { title: '型号', dataIndex: 'model', key: 'model', render: (v: string) => v || '—' },
     { title: 'SoC', dataIndex: 'soc', key: 'soc', render: (v: string) => v || '—' },
+    {
+      title: 'QNN / Root',
+      key: 'qnn',
+      width: 140,
+      render: (_: unknown, row: NodeInfo) => (
+        <Space direction="vertical" size={0} style={{ fontSize: 12 }}>
+          <span className="mono">{row.qnn_version || '未识别'}</span>
+          <span style={{ color: '#8c8c8c' }}>
+            {/* -1 是"未判定"，不是"没有" —— 两者混在一起会让人误判设备能力 */}
+            {row.is_root === 1 ? '有 root' : row.is_root === 0 ? '无 root' : 'root 未判定'}
+          </span>
+        </Space>
+      ),
+    },
     {
       title: 'Android',
       dataIndex: 'android_version',

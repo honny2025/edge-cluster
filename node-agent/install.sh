@@ -12,6 +12,7 @@
 #  用法（在 Termux 里）：
 #    bash install.sh
 #    bash install.sh --token 你的平台token --platform http://192.168.1.100:8000
+#    bash install.sh --name mi13-lab-01   # 指定节点名（多部手机必须各不相同）
 #    bash install.sh --no-boot        # 不装开机自启
 #
 #  ⚠️ 系统限制（必须知悉）：
@@ -28,12 +29,14 @@ CONFIG_FILE="$AGENT_DIR/config.toml"
 
 TOKEN=""
 PLATFORM=""
+NAME=""
 INSTALL_BOOT=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --token)     TOKEN="$2"; shift 2 ;;
     --platform)  PLATFORM="$2"; shift 2 ;;
+    --name)      NAME="$2"; shift 2 ;;
     --no-boot)   INSTALL_BOOT=0; shift ;;
     -h|--help)   sed -n '2,30p' "$0"; exit 0 ;;
     *) echo "未知参数: $1"; exit 1 ;;
@@ -89,6 +92,12 @@ ok "Python 依赖安装完成"
 
 # ------------------------------------------------------------------ 写入配置
 log "写入 Agent 配置"
+if [ -n "$NAME" ]; then
+  sed -i "s|^name = .*|name = \"$NAME\"|" "$CONFIG_FILE"
+  ok "已设置节点名：$NAME"
+else
+  warn "未指定 --name，沿用 config.toml 里的默认名（多部手机请务必各自指定，否则平台上重名难区分）"
+fi
 if [ -n "$TOKEN" ]; then
   sed -i "s|^token = .*|token = \"$TOKEN\"|" "$CONFIG_FILE"
   ok "已设置 token"
@@ -176,7 +185,7 @@ cat <<'EOF'
 ======================================================================
  安装完成
 ======================================================================
- 查看日志   : tail -f logs/agent.log
+ 查看日志   : ls logs/ 先看文件名，然后 tail -f logs/<节点名>.log
  查看进程   : pgrep -f agent.py
  停止 Agent : pkill -f agent.py
  重启 Agent : cd 到本目录 && nohup python3 agent.py >> logs/nohup.log 2>&1 &
@@ -191,4 +200,6 @@ EOF
 # 打印最近几行日志，方便立即确认是否连上平台
 echo
 echo "--- 最近日志 ---"
-tail -n 12 "$AGENT_DIR/logs/agent.log" 2>/dev/null || tail -n 12 "$AGENT_DIR/logs/nohup.log" 2>/dev/null || echo "(暂无日志)"
+# 日志文件名 = 节点名（agent.py 用 name 作 log tag），不是 agent.log
+LOG=$(ls -t "$AGENT_DIR"/logs/*.log 2>/dev/null | grep -v nohup | head -n 1)
+tail -n 12 "${LOG:-$AGENT_DIR/logs/nohup.log}" 2>/dev/null || echo "(暂无日志)"

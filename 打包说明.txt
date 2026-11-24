@@ -1,0 +1,60 @@
+edge-cluster 可移植交付包
+==============================================
+版本        : 0.5.0-m5
+打包时间    : 2026-11-15 17:24:08
+文件数      : 172
+未压缩体积  : 22.6 MB
+
+怎么开始
+----------------------------------------------
+第一次在新电脑上用（3 步）：
+  1. 双击「环境初始化.bat」跑一次 —— 自动装 WebView2 运行时（桌面壳依赖）、
+     放行防火墙 8000 端口（让手机能连上来）。重复跑不会重复装。
+  2. 双击「edge-cluster-desktop.exe」打开桌面控制台，或双击「启动.bat」
+     （起平台 + 用浏览器打开 http://127.0.0.1:8000）。
+  3. 手机端照「手机端部署指南.md」装 Agent 并连平台。
+
+  包内已带**预编译**的 Rust 二进制（server-rust 的 edge-cluster-server、
+  node-agent-rust 的 edge-cluster-agent、桌面壳 edge-cluster-desktop），
+  SQLite 静态编译进二进制、前端 web/dist 已打包。所以 Windows x64 用户
+  **无需装 Python / Rust / Node.js**，解压即用。
+
+  （桌面壳本身只依赖系统自带的 WebView2 运行时，Win10/11 一般已内置；
+   老系统跑「环境初始化.bat」会自动补装。）
+
+  只有两种情形才需要额外装工具链：
+  1. 要改后端 Rust 代码重新编译 → 装 Rust 工具链（rustup）+ C 链接器
+     （Windows 用 MSVC 的 VS Build Tools，或 MinGW-w64）。
+  2. 要改前端源码重新构建 → 装 Node.js 18+，然后 npm install && npm run build。
+
+  Linux / macOS：包内没有对应平台的二进制，需装 Rust 工具链后：
+    cd server-rust && cargo build --release
+    cd node-agent-rust && cargo build --release
+    然后 bash start_all.sh
+
+  手机端（安卓/Termux）走 node-agent/（Python 过渡期），见「手机端部署指南.md」。
+
+根目录文档导读
+----------------------------------------------
+  快速开始.txt              最小启动步骤（先看这个）
+  系统迁移与使用指南.md     换电脑 / 日常使用 / 排错（第二先看这个）
+  平台使用指南.md           界面每一块是什么、怎么看懂「—」
+  手机端部署指南.md         怎么把 Agent 装到安卓手机上（含给 AI 的提示词）
+  功能清单.md               已实现什么、还缺什么（A/B/C 三类分开列）
+  docs/design/平台设计文档.md   架构与状态机
+  docs/guides/真机测试检查单.md 插上手机后照着一项项打勾
+  docs/user-manual.md       完整用户手册
+  docs/acceptance/          验收脚本（可复跑，每个都写明验什么）
+  docs/guides/              真机接入 / Termux / 局域网部署等操作指南
+  docs/design/              架构、技术决策、做不了功能的解决办法
+
+这个包不含什么
+----------------------------------------------
+  不含编译中间产物（各 target/ 目录、.venv / node_modules）
+  不含 server-rust/data/     —— 原机器的数据库与日志，带过去会串数据
+  不含 node-agent-rust/state/ —— 节点身份文件（node_id/token），带过去会身份冲突
+  不含 node-agent/state/ logs/ models/ —— 同理（手机端本机状态）
+  不含模型权重（.gguf/.onnx 等，动辄几 GB）—— 模型要重新部署或按备份清单手工拷
+
+  包内已带 web/dist/ 和 Windows x64 的预编译二进制，
+  所以不装 Node.js、不装 Rust 也能直接用控制台。

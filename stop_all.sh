@@ -21,6 +21,6 @@ stop_pidfile() {
 stop_pidfile "$ROOT/.agents.pids" "模拟节点"
 stop_pidfile "$ROOT/.server.pid" "平台服务端"
 
-# 兜底：按命令行特征回收（run.py 和 agent.py 都要覆盖，否则平台会漏杀）
-pkill -f 'edge-cluster.*(agent|run)\.py' 2>/dev/null || true
+# 兜底：按命令行特征回收（Rust 二进制的 server 与 agent 都要覆盖，否则平台会漏杀）
+pkill -f 'edge-cluster-(server|agent)(\.exe)?' 2>/dev/null || true
 echo "全部进程已停止。"

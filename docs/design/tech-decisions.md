@@ -328,7 +328,10 @@ offline_threshold = 15        # 秒，心跳超时判离线
 offline_confirm_times = 3     # 防抖：连续 N 次超时才标 offline
 heartbeat_interval = 5        # 期望心跳间隔（秒，平台侧巡检周期）
 service_probe_interval = 15   # 服务探活周期（秒）
-metric_retention_days = 7
+metric_raw_retention_days = 2      # 原始采样（5s）保留天数
+metric_minute_retention_days = 30  # 分钟级聚合保留天数
+metric_hour_retention_days = 365   # 小时级聚合保留天数
+metric_rollup_interval_minutes = 60 # 降采样+清理执行周期（分钟）
 log_level = "INFO"
 
 [data]

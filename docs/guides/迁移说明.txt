@@ -1,0 +1,84 @@
+edge-cluster 可迁移包 —— 一页速览
+================================================
+
+版本 0.5.0-m5
+
+先读哪份文档
+------------------------------------------------
+  系统迁移与使用指南.md    换电脑怎么搬 / 日常怎么用 / 出问题查哪里  ← 主文档
+  快速开始.txt             只想立刻跑起来
+  平台使用指南.md          界面每一块是什么、怎么看懂「—」
+  手机端部署指南.md        往手机装 Agent（含一段可直接发给 AI 的提示词）
+  功能清单.md              已实现什么、还缺什么
+  C盘瘦身与迁移到E盘指南.md  和平台无关，是这台机器的 C 盘清理建议
+
+三步跑起来（Windows）
+------------------------------------------------
+  1. python -m venv .venv
+     .venv\Scripts\pip install -r server\requirements.txt
+  2. .venv\Scripts\python server\run.py
+  3. 浏览器打开 http://127.0.0.1:8000
+
+  （也可以直接双击 启动.bat；停止双击 停止.bat）
+
+Linux / macOS
+------------------------------------------------
+  python3 -m venv .venv
+  .venv/bin/pip install -r server/requirements.txt
+  .venv/bin/python server/run.py
+
+要求 Python 3.10 或更高。
+不需要 Node.js —— 控制台已经编译在 web/dist 里了。
+不需要装数据库 —— 用的是 SQLite，Python 自带。
+
+搬过去之后第一件事
+------------------------------------------------
+  打开 server/config.toml，把 token = "edge-cluster-dev-token" 改成你自己的。
+  手机上 Agent 的 --token 必须跟它完全一致，否则连不上。
+
+手机接入
+------------------------------------------------
+  在手机 Termux 的 node-agent 目录里：
+    bash install.sh --token <你的token> --platform http://<平台IP>:8000 --name <手机名>
+
+  每台手机的 --name 必须不同，否则 node_id 撞车会互相顶掉连接。
+
+包里的验收脚本
+------------------------------------------------
+  docs/acceptance/ 下有 13 支脚本，每个都写明验什么、期望结果。
+  搬完家跑一遍这几条，全绿就说明这台机器上的系统是好的：
+
+    .venv\Scripts\python docs\acceptance\config_check.py        :: 13/13
+    .venv\Scripts\python docs\acceptance\metric_tiers_check.py  :: 37/37
+    .venv\Scripts\python docs\acceptance\backup_check.py       :: 42/42
+    .venv\Scripts\python docs\acceptance\rollback_check.py    :: 42/42
+    .venv\Scripts\python docs\acceptance\agent_metrics_check.py :: 41/41
+    .venv\Scripts\python docs\acceptance\m1_check.py --phase online  :: 11/11
+    .venv\Scripts\python docs\acceptance\m2_check.py --phase online  :: 17/17
+
+  后两条需要平台在跑、且至少有一个 Agent 在线。
+
+换电脑时把数据也带走
+------------------------------------------------
+  控制台 → 左侧「系统」页 → 「立即备份并下载」，得到 edge-cluster-backup-*.zip
+  新机器上 → 「系统」页 → 选这个 zip → 「校验」→ 绿了再点「恢复」
+  别直接拷 server/data/edge_cluster.db：库开着 WAL，直接复制会静默少一截。
+
+这个包不含什么（故意的）
+------------------------------------------------
+  不含 .venv / node_modules  —— 依赖要现装（见上）
+  不含 server/data/         —— 原机器的数据库与日志，带过去会串数据
+  不含 node-agent/state/    —— 节点身份文件，带过去会身份冲突
+
+能用的闭环
+------------------------------------------------
+  手机接入 → 看状态 → 传模型 → 预检兼容 → 批量下发 → 起服务
+         → 平台调用 → 看请求量与延迟 → 文件管理 → 操作审计
+
+安全红线（不因迁移而改变）
+------------------------------------------------
+  1. 禁止 Root Shell 直接暴露公网；TLS 建议放在反向代理后。
+  2. ADB 只负责初始化、调试、救援，不得成为正式管理协议。
+  3. 本项目只做手机管理平台，不做 QNN 推理实现。
+  4. 远程命令默认关闭，开启也需白名单 + 全程审计。
+  5. 只应在完全可信的局域网内使用，不要暴露到公网。

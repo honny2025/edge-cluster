@@ -5,7 +5,13 @@ import {
   ApiOutlined,
   CloudServerOutlined,
   DashboardOutlined,
+  DatabaseOutlined,
+  DeploymentUnitOutlined,
+  FileTextOutlined,
+  FolderOpenOutlined,
   ReloadOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
 } from '@ant-design/icons'
 import { api, dashboardWsUrl } from './api'
 import type { SystemInfoOut } from './types'
@@ -112,6 +118,11 @@ export default function App() {
 
   const selectedKey = useMemo(() => {
     if (location.pathname.startsWith('/nodes')) return '/nodes'
+    if (location.pathname.startsWith('/models')) return '/models'
+    if (location.pathname.startsWith('/deployments')) return '/deployments'
+    if (location.pathname.startsWith('/services')) return '/services'
+    if (location.pathname.startsWith('/files')) return '/files'
+    if (location.pathname.startsWith('/audit')) return '/audit'
     return '/'
   }, [location.pathname])
 
@@ -125,12 +136,13 @@ export default function App() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 20px',
-          background: '#1c2430',
-          borderBottom: '1px solid #2a3444',
+          background: 'linear-gradient(180deg, rgba(28, 36, 48, 0.94), rgba(20, 26, 36, 0.94))',
+          borderBottom: '1px solid rgba(56, 189, 248, 0.20)',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.35)',
         }}
       >
         <Space size={12}>
-          <CloudServerOutlined style={{ fontSize: 20, color: '#4f9cf9' }} />
+          <CloudServerOutlined style={{ fontSize: 20, color: '#38bdf8', filter: 'drop-shadow(0 0 6px rgba(56,189,248,0.6))' }} />
           <Typography.Text strong style={{ fontSize: 16 }}>
             手机边缘计算集群管理平台
           </Typography.Text>
@@ -174,7 +186,13 @@ export default function App() {
       </Header>
 
       <Layout>
-        <Sider width={200} style={{ background: '#1a212b' }}>
+        <Sider
+          width={200}
+          style={{
+            background: 'linear-gradient(180deg, rgba(24, 32, 44, 0.96), rgba(15, 20, 30, 0.96))',
+            borderRight: '1px solid rgba(56, 189, 248, 0.12)',
+          }}
+        >
           <Menu
             mode="inline"
             selectedKeys={[selectedKey]}
@@ -187,13 +205,52 @@ export default function App() {
               },
               {
                 key: '/nodes',
-                icon: <ApiOutlined />,
+                icon: <CloudServerOutlined />,
                 label: <Link to="/nodes">节点</Link>,
+              },
+              {
+                key: '/models',
+                icon: <DatabaseOutlined />,
+                label: <Link to="/models">模型库</Link>,
+              },
+              {
+                key: '/deployments',
+                icon: <DeploymentUnitOutlined />,
+                label: <Link to="/deployments">部署</Link>,
+              },
+              {
+                key: '/services',
+                icon: <ApiOutlined />,
+                label: <Link to="/services">服务</Link>,
+              },
+              {
+                key: '/files',
+                icon: <FolderOpenOutlined />,
+                label: <Link to="/files">文件</Link>,
+              },
+              {
+                key: '/audit',
+                icon: <FileTextOutlined />,
+                label: <Link to="/audit">审计</Link>,
+              },
+              {
+                key: '/system',
+                icon: <SettingOutlined />,
+                label: <Link to="/system">系统</Link>,
+              },
+              {
+                key: '/docs',
+                icon: <SafetyCertificateOutlined />,
+                label: (
+                  <a href="/docs" target="_blank" rel="noreferrer">
+                    接口文档
+                  </a>
+                ),
               },
             ]}
           />
         </Sider>
-        <Content style={{ padding: 20, background: '#14181f' }}>
+        <Content style={{ padding: 20, background: 'transparent' }}>
           <Outlet context={{ info, refreshInfo }} />
         </Content>
       </Layout>

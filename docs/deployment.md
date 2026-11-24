@@ -1,6 +1,22 @@
 # 部署文档（PC 平台 + 手机 Termux 真机）
 
-本文覆盖两条部署路径：① PC/Linux 上跑平台服务端；② Android 手机上跑节点 Agent。
+本文覆盖两条部署路径：① PC/Linux 上跑平台服务端；② Android 手机上跑节点 Agent。平台按“整目录可搬迁”设计，可从个人电脑迁移到工作室局域网服务器或另一台电脑。
+
+## 0. 工作室局域网迁移原则
+
+- 平台监听 `0.0.0.0:8000`，手机 Agent 使用工作室电脑的局域网 IP，不使用 `127.0.0.1`。
+- 迁移时整体复制 `server/`、`node-agent/`、`web/dist/` 和 `server/data/`；其中 `data/` 保存节点、模型索引和运行记录。
+- 在新电脑只需修改 `server/config.toml` 的端口、Token 和数据目录，或通过环境变量覆盖；手机端把 `--platform-url` 改为新平台 IP。
+- 不把手机 IP 写死进平台配置；节点通过 UDP 37020 自动发现并以 node_id 识别，换路由器后仍可重新上线。
+- 建议为平台主机设置固定 DHCP 地址，例如 `192.168.50.10`，便于工作室设备长期连接。
+
+### 迁移步骤
+
+1. 停止旧平台，备份整个 `edge-cluster/server/data/` 目录。
+2. 将项目目录复制到工作室主机，运行 `启动.bat` 或 `start_all.ps1`。
+3. 在工作室路由器中放行 TCP `8000` 和 UDP `37020`，确认关闭 AP 隔离。
+4. 两部手机改用 `http://<工作室平台IP>:8000` 启动 Agent；不需要重新安装模型时可保留手机上的 `node-agent/state/`。
+5. 浏览器打开 `http://<工作室平台IP>:8000`，确认节点、模型和服务记录恢复。
 
 ---
 
@@ -48,7 +64,10 @@ offline_threshold = 15             # 心跳超时阈值（秒）
 offline_confirm_times = 3          # 防抖：连续 N 次巡检超时才标 offline
 heartbeat_interval = 5             # 巡检周期（秒）
 service_probe_interval = 15        # 服务探活周期（秒）
-metric_retention_days = 7          # 指标保留天数
+metric_raw_retention_days = 2      # 原始采样（5s）保留天数
+metric_minute_retention_days = 30  # 分钟级聚合保留天数
+metric_hour_retention_days = 365   # 小时级聚合保留天数
+metric_rollup_interval_minutes = 60 # 降采样+清理执行周期（分钟）
 log_level = "INFO"
 
 [data]
@@ -145,19 +164,19 @@ npm run dev            # http://127.0.0.1:5173，已配好 /api 与 /ws 代理
 ```bash
 # 方式 A：git（手机能访问你的仓库时）
 pkg install git
-git clone <你的仓库地址> ~/edge-cluster
+git clone <你的仓库地址> ~/node-agent
 
 # 方式 B：从 PC 推送（PC 上执行）
 adb push edge-cluster/node-agent /sdcard/Download/
 # 然后在 Termux 里：
 termux-setup-storage
-cp -r /sdcard/Download/node-agent ~/edge-cluster
+cp -r /sdcard/Download/node-agent ~/node-agent
 ```
 
 ### 2.3 一键安装
 
 ```bash
-cd ~/edge-cluster
+cd ~/node-agent
 bash install.sh --token edge-cluster-dev-token --platform http://192.168.1.100:8000
 ```
 
@@ -169,7 +188,7 @@ bash install.sh --token edge-cluster-dev-token --platform http://192.168.1.100:8
 ### 2.4 验证
 
 ```bash
-tail -f ~/edge-cluster/logs/agent.log     # 应看到 "平台确认注册成功"
+tail -f ~/node-agent/logs/<节点名>.log     # 应看到 "平台确认注册成功"
 pgrep -f agent.py                          # 应有一个 PID
 ```
 

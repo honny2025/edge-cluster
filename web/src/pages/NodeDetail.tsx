@@ -22,20 +22,25 @@ import MetricChart from '../components/MetricChart'
 import { HeartbeatText, NodeStatusTag, ServiceStatusTag } from '../components/NodeStatusTag'
 import { humanBytes, humanDuration, parseUtc, ratio } from '../utils/format'
 import { METRIC_COLORS, MONO_FONT } from '../utils/theme'
-import type { MetricSample, NodeInfo } from '../types'
+import type { MetricSample, NodeInfo, ServiceOut } from '../types'
 
-interface ServiceRow {
-  service_id: string
-  node_id: string
-  model_id: string | null
-  name: string
-  status: 'stopped' | 'starting' | 'running' | 'error'
-  port: number
-  endpoint: string
-  api_type: string
-  pid: number | null
-  started_at: string | null
-  last_error: string
+/**
+ * 设备能力项 → 人话。
+ *
+ * 三态很关键：`true` 是"有"，`false` 是"确认没有"，`null/undefined` 是"没探到"。
+ * 把"没探到"显示成"没有"，用户会以为是设备不行 —— 而真相可能是权限没给。
+ */
+function capText(v: boolean | number | null | undefined): { text: string; color: string } {
+  if (v === null || v === undefined) return { text: '未知', color: 'default' }
+  const yes = v === true || v === 1
+  return yes ? { text: '可用', color: 'success' } : { text: '不可用', color: 'default' }
+}
+
+/** -1 未知 / 0 没有 / 1 有。**必须和"没有"分开显示** */
+function rootText(isRoot: number): { text: string; color: string } {
+  if (isRoot === 1) return { text: '有 root', color: 'warning' }
+  if (isRoot === 0) return { text: '无 root', color: 'default' }
+  return { text: '未判定', color: 'default' }
 }
 
 /** 采样新鲜度阈值（秒）。与后端 metrics_query.STALE_FACTOR × 心跳周期一致。 */
@@ -94,7 +99,7 @@ export default function NodeDetail() {
   const { nodeId = '' } = useParams()
   const navigate = useNavigate()
   const [node, setNode] = useState<NodeInfo | null>(null)
-  const [services, setServices] = useState<ServiceRow[]>([])
+  const [services, setServices] = useState<ServiceOut[]>([])
   const [samples, setSamples] = useState<MetricSample[]>([])
   const [range, setRange] = useState(30)
   const [loading, setLoading] = useState(true)
@@ -104,7 +109,7 @@ export default function NodeDetail() {
     try {
       const [n, s] = await Promise.all([api.getNode(nodeId), api.nodeServices(nodeId)])
       setNode(n)
-      setServices((s as { items: ServiceRow[] }).items ?? [])
+      setServices(s.items ?? [])
       setNotFound(false)
     } catch (e: unknown) {
       const status = (e as { response?: { status?: number } })?.response?.status
@@ -175,12 +180,26 @@ export default function NodeDetail() {
       ],
       temp: [
         {
-          name: '温度',
+          name: '系统温度',
           color: METRIC_COLORS.temp,
           data: samples.map((s) => s.temperature),
           unit: '℃',
           area: true,
         },
+        // 分项温度曾是 extra 里的键，现在是一等字段。分开画 ——
+        // 系统温度是"某一处最热"，CPU/GPU 温度是各自的热点，混成一条线会掩盖差异。
+        { name: 'CPU 温度', color: METRIC_COLORS.cpu, data: samples.map((s) => s.cpu_temp), unit: '℃' },
+        { name: 'GPU 温度', color: METRIC_COLORS.gpu, data: samples.map((s) => s.gpu_temp), unit: '℃' },
+        {
+          name: '电池温度',
+          color: METRIC_COLORS.npu,
+          data: samples.map((s) => s.battery_temp),
+          unit: '℃',
+        },
+      ],
+      freq: [
+        { name: 'CPU 频率', color: METRIC_COLORS.cpu, data: samples.map((s) => s.cpu_freq_mhz), unit: 'MHz' },
+        { name: 'GPU 频率', color: METRIC_COLORS.gpu, data: samples.map((s) => s.gpu_freq_mhz), unit: 'MHz' },
       ],
       net: [
         {
@@ -258,7 +277,16 @@ export default function NodeDetail() {
         />
       )}
 
-      <Card title="基础信息" size="small" style={{ background: '#1a212b', borderColor: '#2a3444' }}>
+      <Card
+        title="基础信息"
+        size="small"
+        style={{ background: '#1a212b', borderColor: '#2a3444' }}
+        extra={
+          <Button size="small" onClick={() => navigate(`/files?node=${node.node_id}`)}>
+            管理文件
+          </Button>
+        }
+      >
         <Descriptions
           column={3}
           size="small"
@@ -268,7 +296,36 @@ export default function NodeDetail() {
             { key: 'id', label: '节点编号', children: <span className="mono">{node.node_id}</span> },
             { key: 'model', label: '型号', children: node.model || '—' },
             { key: 'soc', label: 'SoC', children: node.soc || '—' },
+            // 「Unknown」是后端明确给的"读不到"标记，翻译成人话而不是原样显示
+            {
+              key: 'cpu',
+              label: 'CPU',
+              children: node.cpu && node.cpu !== 'Unknown' ? node.cpu : '未识别',
+            },
+            {
+              key: 'gpu',
+              label: 'GPU',
+              children: node.gpu && node.gpu !== 'Unknown' ? node.gpu : '未识别',
+            },
+            {
+              key: 'npu',
+              label: 'NPU',
+              children: node.npu && node.npu !== 'Unknown' ? node.npu : '未识别',
+            },
             { key: 'android', label: 'Android 版本', children: node.android_version || '—' },
+            {
+              key: 'qnn',
+              label: 'QNN 版本',
+              children: <span className="mono">{node.qnn_version || '未安装/未识别'}</span>,
+            },
+            {
+              key: 'root',
+              label: 'Root 状态',
+              children: (() => {
+                const r = rootText(node.is_root)
+                return <Tag color={r.color}>{r.text}</Tag>
+              })(),
+            },
             {
               key: 'agent',
               label: 'Agent 版本',
@@ -298,6 +355,44 @@ export default function NodeDetail() {
             },
           ]}
         />
+      </Card>
+
+      {/* ---------- 设备能力（需求 §3：平台按"能力"决策，而不是按型号）---------- */}
+      <Card
+        title="设备能力"
+        size="small"
+        style={{ background: '#1a212b', borderColor: '#2a3444' }}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            平台按能力决定能下发什么，而不是按机型猜
+          </Typography.Text>
+        }
+      >
+        <Space size={[8, 8]} wrap>
+          {(
+            [
+              ['系统 CPU 计数', node.capabilities?.can_proc_stat],
+              ['网络计数', node.capabilities?.can_proc_net],
+              ['温度传感器', node.capabilities?.can_thermal],
+              ['Termux API', node.capabilities?.termux_api],
+              ['GPU 计数器', node.capabilities?.gpu_counters],
+              ['QNN Runtime', node.capabilities?.qnn_runtime],
+            ] as [string, boolean | number | null | undefined][]
+          ).map(([label, v]) => {
+            const c = capText(v)
+            return (
+              <Tag key={label} color={c.color}>
+                {label}：{c.text}
+              </Tag>
+            )
+          })}
+        </Space>
+        <div style={{ marginTop: 8 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            「未知」表示这次没探到（可能是权限未授予），**不等于设备不支持** ——
+            这与"不可用"是两回事，平台不会据此拒绝下发。
+          </Typography.Text>
+        </div>
       </Card>
 
       {/* ---------- 当前指标 ---------- */}
@@ -382,6 +477,34 @@ export default function NodeDetail() {
               </Space>
             </Card>
           </Col>
+          <Col xs={24} lg={12}>
+            <Card size="small" style={{ background: '#1a212b', borderColor: '#2a3444', height: '100%' }}>
+              <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>分项温度 / 频率</div>
+              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                <span className="mono" style={{ fontSize: 13 }}>
+                  CPU {fmtNum(m?.cpu_temp, '℃')} · GPU {fmtNum(m?.gpu_temp, '℃')}
+                </span>
+                <span className="mono" style={{ fontSize: 13 }}>
+                  CPU {fmtNum(m?.cpu_freq_mhz, 'MHz', 0)} · GPU {fmtNum(m?.gpu_freq_mhz, 'MHz', 0)}
+                </span>
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Card size="small" style={{ background: '#1a212b', borderColor: '#2a3444', height: '100%' }}>
+              <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 4 }}>电池</div>
+              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                <span className="mono" style={{ fontSize: 13 }}>
+                  电量 {fmtNum(m?.battery_percent, '%', 0)}
+                </span>
+                <span className="mono" style={{ fontSize: 13 }}>
+                  {m?.battery_status
+                    ? `${BATTERY_STATUS_TEXT[m.battery_status] ?? m.battery_status} · ${fmtNum(m?.battery_temp, '℃')}`
+                    : `状态 ${m?.battery_temp == null ? '—' : '未提供'} · ${fmtNum(m?.battery_temp, '℃')}`}
+                </span>
+              </Space>
+            </Card>
+          </Col>
         </Row>
       </Card>
 
@@ -436,14 +559,15 @@ export default function NodeDetail() {
           </div>
           <Row gutter={[14, 14]}>
             <Col xs={24} lg={12}>
-              <Typography.Text style={{ fontSize: 12, color: '#8c8c8c' }}>温度（℃）</Typography.Text>
+              <Typography.Text style={{ fontSize: 12, color: '#8c8c8c' }}>
+                温度（系统 / CPU / GPU / 电池，℃）
+              </Typography.Text>
               <MetricChart
                 timestamps={chart.timestamps}
                 series={chart.temp}
                 height={190}
                 valueFormatter={(v) => v.toFixed(0)}
                 emptyText="设备未暴露温度，无数据"
-                showLegend={false}
               />
             </Col>
             <Col xs={24} lg={12}>
@@ -459,6 +583,16 @@ export default function NodeDetail() {
               />
             </Col>
           </Row>
+          <div>
+            <Typography.Text style={{ fontSize: 12, color: '#8c8c8c' }}>频率（MHz）</Typography.Text>
+            <MetricChart
+              timestamps={chart.timestamps}
+              series={chart.freq}
+              height={190}
+              valueFormatter={(v) => v.toFixed(0)}
+              emptyText="设备未暴露频率，无数据"
+            />
+          </div>
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
             曲线断点表示该时刻采集不到该项（例如手机不暴露 NPU/GPU 使用率），表示"无数据"而非数值为 0。
           </Typography.Text>
@@ -467,13 +601,13 @@ export default function NodeDetail() {
 
       {/* ---------- 服务列表 ---------- */}
       <Card
-        title="运行中的模型服务"
+        title="该节点上的模型服务"
         size="small"
         style={{ background: '#1a212b', borderColor: '#2a3444' }}
         extra={
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            服务管理功能将在里程碑 4 提供
-          </Typography.Text>
+          <Button size="small" onClick={() => navigate('/services')}>
+            去服务管理
+          </Button>
         }
       >
         {services.length === 0 ? (
@@ -491,7 +625,7 @@ export default function NodeDetail() {
                 dataIndex: 'status',
                 key: 'status',
                 width: 100,
-                render: (s: ServiceRow['status']) => <ServiceStatusTag status={s} />,
+                render: (s: ServiceOut['status']) => <ServiceStatusTag status={s} />,
               },
               { title: '端口', dataIndex: 'port', key: 'port', width: 90 },
               {
@@ -539,9 +673,48 @@ function toRate(timestamps: string[], cumulative: (number | null)[]): (number | 
   return out
 }
 
+/** CPU 采集来源 → 人话。拿不到时用户必须能看懂"为什么是 —"，而不是以为采集坏了 */
+const CPU_SOURCE_TEXT: Record<string, string> = {
+  proc_stat: '系统真值',
+  proc_stat_first_sample: '系统真值（首帧待第二次采样）',
+  unavailable: 'Android 限制，读不到 /proc/stat',
+  simulated: '模拟数据',
+  unknown: '未知来源',
+}
+
+/** 数值 + 单位。**null 一律显示「—」**：拿不到不是 0 */
+function fmtNum(v: number | null | undefined, unit: string, digits = 1): string {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return '—'
+  return `${Number(v).toFixed(digits)}${unit}`
+}
+
+/** 电池状态 → 中文。后端原样透传 Android/Termux 的英文枚举 */
+const BATTERY_STATUS_TEXT: Record<string, string> = {
+  charging: '充电中',
+  discharging: '放电中',
+  full: '已充满',
+  not_charging: '未充电',
+  unknown: '状态未知',
+}
+
+const NET_SOURCE_TEXT: Record<string, string> = {
+  proc_net_dev: '系统真值',
+  proc_self_net_dev: '系统真值（self 入口）',
+  sysfs_iface: '系统真值（sysfs）',
+  unavailable: 'Android 限制，读不到 /proc/net/dev',
+  simulated: '模拟数据',
+  unknown: '未知来源',
+}
+
 /** extra JSON → 简短可读文本 */
 function formatExtra(extra: Record<string, unknown>): string {
   const parts: string[] = []
+  if (extra.cpu_source) parts.push(`CPU 来源：${CPU_SOURCE_TEXT[String(extra.cpu_source)] ?? String(extra.cpu_source)}`)
+  if (extra.net_source) parts.push(`流量来源：${NET_SOURCE_TEXT[String(extra.net_source)] ?? String(extra.net_source)}`)
+  // 系统 CPU 拿不到时，这几个是明确标注过的替代指标（口径与"使用率"不同，不可混用）
+  if (extra.cpu_freq_ratio !== undefined) parts.push(`频率占比 ${extra.cpu_freq_ratio}%`)
+  if (extra.cpu_pressure_avg10 !== undefined) parts.push(`CPU 压力 ${extra.cpu_pressure_avg10}%`)
+  if (extra.agent_cpu_percent !== undefined) parts.push(`Agent 占用 ${extra.agent_cpu_percent}%`)
   if (extra.cpu_freq_avg_mhz) parts.push(`${Number(extra.cpu_freq_avg_mhz).toFixed(0)}MHz`)
   if (extra.cpu_cores) parts.push(`${extra.cpu_cores}核`)
   if (extra.battery_percent !== undefined) parts.push(`电量 ${extra.battery_percent}%`)

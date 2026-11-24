@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>手机端修复与补充指南（给 Codex）</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; line-height: 1.7; max-width: 900px; margin: 0 auto; padding: 24px; color: #1a1a1a; }
+  h1 { border-bottom: 3px solid #2563eb; padding-bottom: 10px; }
+  h2 { color: #1d4ed8; margin-top: 36px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px; }
+  h3 { color: #334155; margin-top: 24px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.92em; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.9em; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: inherit; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #eff6ff; }
+  .warn { background: #fff7ed; border-left: 4px solid #f59e0b; padding: 10px 14px; margin: 14px 0; border-radius: 4px; }
+  .danger { background: #fef2f2; border-left: 4px solid #dc2626; padding: 10px 14px; margin: 14px 0; border-radius: 4px; }
+  .ok { background: #f0fdf4; border-left: 4px solid #16a34a; padding: 10px 14px; margin: 14px 0; border-radius: 4px; }
+  .placeholder { color: #dc2626; font-weight: bold; }
+  ul, ol { padding-left: 24px; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+
+<h1>手机端修复与补充指南（给 Codex）</h1>
+
+<div class="ok">
+<strong>这是一份自包含的执行指南。</strong>你（Codex）会被放进这部 Android 手机的 Termux shell 里，任务是：更新节点 Agent 代码、安装推理运行时 llama.cpp、配置保活、重启并验收。你不需要看任何聊天记录，照这份文档逐步执行，每一步把真实输出贴给人。
+</div>
+
+<h2>0. 一句话目标</h2>
+<p>把这部<strong>已经在线</strong>的手机，从「旧代码 + 没装推理运行时 + 会被息屏限速」修到「新代码 + llama.cpp 就绪 + 保活到位」，让人在平台上能<strong>稳定下发模型、拉起推理服务</strong>。</p>
+
+<h2>1. 现状（已知事实，不要重复确认）</h2>
+<table>
+  <tr><th>事实</th><th>说明</th></tr>
+  <tr><td>节点状态</td><td>这部手机<strong>已经注册、在线</strong>，节点名 <span class="placeholder">{{节点名}}</span>。它是「更新 + 补充」，不是从零装。</td></tr>
+  <tr><td>平台地址</td><td><code>http://<span class="placeholder">{{平台IP}}</span>:8000</code>，health 接口无需鉴权。</td></tr>
+  <tr><td>共享 token</td><td><code><span class="placeholder">{{TOKEN}}</span></code>（通常已写在手机 config.toml 里，一般不用你动）。</td></tr>
+  <tr><td>旧代码的 bug</td><td>旧 agent.py 断点续传会写坏文件（SHA 一直对不上、模型传过去用不了）；新包里已修。</td></tr>
+  <tr><td>服务起不来的原因</td><td>手机还没装 <code>llama-cli</code> / <code>llama-server</code>（llama.cpp），所以「服务拉起」和「模型自检」都会失败。</td></tr>
+  <tr><td>下载慢/卡死的根因</td><td>Android 息屏后的省电策略（Doze）把 Termux 后台网络限死。这不是代码或局域网问题，必须靠第 5 节的「保活」解决。</td></tr>
+</table>
+
+<h2>2. 任务总览（4 件事，按顺序做）</h2>
+<ol>
+  <li>用新文件包<strong>覆盖</strong> node-agent 代码（保留手机已有的 <code>config.toml</code> 和 <code>state/</code>）。</li>
+  <li>安装 llama.cpp，让 <code>llama-cli</code> 和 <code>llama-server</code> 都进 PATH。</li>
+  <li>配置保活（防息屏断流/被杀）—— 这是慢下载的根因。</li>
+  <li>重启 agent 并逐项验收。</li>
+</ol>
+
+<h2>3. Step 0 — 确认平台可达（拿不到就停）</h2>
+<pre><code>curl -s --max-time 5 http://{{平台IP}}:8000/api/v1/system/health</code></pre>
+<p>期望看到包含 <code>"status":"ok"</code> 的 JSON。<strong>若超时/拒绝/不是 ok：停下，报告「平台不可达」</strong>，让人确认平台已启动、IP 没变、端口 8000 放行。不要继续往下走。</p>
+
+<h2>4. Step 1 — 覆盖 node-agent 代码（保留身份）</h2>
+
+<div class="danger">
+<strong>红线：绝不要覆盖或删除手机现有的 <code>config.toml</code> 和 <code>state/</code> 目录。</strong><br>
+<code>config.toml</code> 里有这部手机的真实 node_id / 名字 / 平台地址 / token；<code>state/</code> 里有设备 token 和服务记录。一旦被冲掉，这部手机会以「新身份」上线，平台上旧节点掉线、下发任务失配。新包里<strong>故意不含</strong> <code>config.toml</code>，就是防止整目录覆盖时误伤它。
+</div>
+
+<h3>4.1 定位现有的 node-agent</h3>
+<pre><code>find /sdcard/Download /sdcard "$HOME" -maxdepth 5 -name agent.py 2>/dev/null | head -n 5</code></pre>
+<p>记下找到的目录（通常是 <code>~/node-agent</code> 或 <code>/sdcard/Download/node-agent</code>）。<strong>找不到就停下报告</strong>，让人把新文件包 <code>node-agent-2026-11-14.zip</code> 传到手机。</p>
+
+<h3>4.2 备份身份文件（务必先做）</h3>
+<pre><code>cd &lt;node-agent目录&gt;
+cp -r config.toml state ~/node-agent-backup-$(date +%s) 2>/dev/null || cp config.toml ~/config.toml.bak
+ls -la ~ | grep -E 'node-agent-backup|config.toml.bak'</code></pre>
+<p>目的是万一后面出错还能恢复身份。备份到 <code>~</code> 下，不要放在 node-agent 目录内（避免被覆盖）。</p>
+
+<h3>4.3 解压新包并覆盖（只覆盖代码，不碰身份）</h3>
+<pre><code>cd ~
+unzip -o /sdcard/Download/node-agent-2026-11-14.zip -d /tmp/pkg
+# 只把代码文件拷进去；config.toml 本就不在包里，state/、logs/、models/ 不会被碰
+cp -f /tmp/pkg/node-agent/*.py &lt;node-agent目录&gt;/
+cp -f /tmp/pkg/node-agent/*.sh &lt;node-agent目录&gt;/
+cp -f /tmp/pkg/node-agent/requirements.txt &lt;node-agent目录&gt;/ 2>/dev/null
+rm -rf /tmp/pkg</code></pre>
+
+<div class="warn">
+<strong>注意：</strong>上面是「只覆盖 .py / .sh / requirements.txt」的安全做法。如果你用 <code>unzip -o</code> 直接解到 node-agent 目录，<strong>也行</strong>（因为包里没有 config.toml），但要确保解压后手机原来的 <code>config.toml</code>、<code>state/</code>、<code>logs/</code>、<code>models/</code> 都还在。解压完用下一步的命令核对。
+</div>
+
+<h3>4.4 核对身份没被冲掉 + 新代码确实到位</h3>
+<pre><code>cd &lt;node-agent目录&gt;
+cat config.toml | grep -E '^(node_id|name|platform_url|token)'
+grep -c '部署前清理上一轮残片' agent.py    # 期望输出 >= 1（新代码标记）
+ls -la state 2>/dev/null && echo "state 目录还在"</code></pre>
+<ul>
+  <li><code>config.toml</code> 里 <code>name</code> 必须是 <span class="placeholder">{{节点名}}</span>、<code>node_id</code> 非空 —— 若不是，说明身份被冲了，立即用 4.2 的备份恢复。</li>
+  <li><code>grep -c '部署前清理上一轮残片'</code> 输出 ≥1，说明新 agent.py 已生效。</li>
+  <li><code>state</code> 目录还在，说明设备 token / 服务记录没丢。</li>
+</ul>
+
+<h2>5. Step 2 — 安装 llama.cpp（推理运行时）</h2>
+<p>模型<strong>自检</strong>默认用 <code>llama-cli</code>，模型<strong>服务</strong>用 <code>llama-server</code>。平台不负责装，必须手机自己装好。</p>
+
+<h3>5.1 先确认是否已装</h3>
+<pre><code>command -v llama-cli llama-server 2>/dev/null || echo "未安装"</code></pre>
+<p>两个都输出路径 → 已装好，跳到 5.3。只有 <code>main</code>/<code>server</code>（llama.cpp 旧命名）→ 直接看 5.3 的命名兼容。</p>
+
+<h3>5.2 安装</h3>
+<pre><code>pkg update -y &amp;&amp; pkg install -y llama-cpp
+command -v llama-cli llama-server 2>/dev/null || echo "仓库没有，走源码编译"</code></pre>
+<p>若没装上，源码编译（一定可行）：</p>
+<pre><code>pkg install -y git cmake ninja clang make
+git clone --depth 1 https://github.com/ggml-org/llama.cpp.git ~/llama.cpp
+cd ~/llama.cpp
+cmake -B build -G Ninja -DGGML_NATIVE=OFF
+cmake --build build -j4
+ls build/bin/   # 看产物名：llama-cli/llama-server 或 main/server</code></pre>
+<div class="warn">手机上编译可能几分钟到几十分钟。若某 cmake 选项报错，以仓库 README 当前构建说明为准，别死磕。</div>
+
+<h3>5.3 放进 PATH + 旧版命名兼容（重要）</h3>
+<pre><code>mkdir -p ~/bin
+for b in llama-cli llama-server main server; do
+  [ -f "$HOME/llama.cpp/build/bin/$b" ] &amp;&amp; cp "$HOME/llama.cpp/build/bin/$b" "$HOME/bin/" &amp;&amp; echo "copied $b"
+done
+# 若只有旧名字 main/server，用软链补齐新名字，平台默认命令就不用改
+command -v llama-cli &gt;/dev/null 2&gt;&amp;1 || ln -sf "$(command -v main)" ~/bin/llama-cli
+command -v llama-server &gt;/dev/null 2&gt;&amp;1 || ln -sf "$(command -v server)" ~/bin/llama-server
+echo 'export PATH="$HOME/bin:$PATH"' &gt;&gt; ~/.bashrc
+export PATH="$HOME/bin:$PATH"</code></pre>
+<p>目标：<strong>四个名字里至少 <code>llama-cli</code> 和 <code>llama-server</code> 都能被 <code>command -v</code> 找到</strong>。这样平台侧的「自检命令」「服务命令」无论用新名还是旧名都能跑。</p>
+
+<h3>5.4 验证</h3>
+<pre><code>command -v llama-cli llama-server
+llama-cli --version 2&gt;&amp;1 | head -1
+echo "$PATH"</code></pre>
+<p>期望：前两条各打印一个<strong>路径 + 版本号</strong>（不是 command not found / 空）。没成功就停在原地，报告卡在哪一步、什么报错，<strong>不要伪造「已装好」</strong>。</p>
+
+<h2>6. Step 3 — 保活三件套（防息屏断流/被杀，关键）</h2>
+<div class="danger">
+<strong>这是「模型下载慢到离谱/卡死」的根因。</strong>不关掉 Android 的省电策略，新代码和 llama 都白装：息屏几分钟后 Termux 后台网络被限速、进程被冻结甚至被杀，几个 GB 的模型永远下不完。分「你能做」和「必须人做」两部分。
+</div>
+
+<h3>6.1 你能做（Termux 内）</h3>
+<pre><code># 唤醒锁：装了 Termux:API 才有用
+pkg install -y termux-api 2&gt;/dev/null
+command -v termux-wake-lock &gt;/dev/null 2&gt;&amp;1 &amp;&amp; termux-wake-lock &amp;&amp; echo "唤醒锁已开" || echo "termux-wake-lock 不可用，需转告人装 Termux:API 应用"</code></pre>
+
+<h3>6.2 必须转告「人」手动做（Codex 碰不到 GUI）</h3>
+<table>
+  <tr><th>位置</th><th>动作</th></tr>
+  <tr><td>设置 → 应用 → Termux → 省电策略</td><td>改为「无限制 / 允许后台活动」</td></tr>
+  <tr><td>设置 → 应用 → Termux</td><td>打开「允许自启动」</td></tr>
+  <tr><td>最近任务列表 → Termux 卡片</td><td>下拉加锁（防一键清理误杀）</td></tr>
+  <tr><td>荣耀 / MagicOS 额外</td><td>设置 → 应用 → 应用启动管理 → Termux → 关「自动管理」，手动全开三个开关</td></tr>
+  <tr><td>（可选但推荐）</td><td>下载模型期间让手机保持亮屏、插电，进一步避免息屏限速</td></tr>
+</table>
+<p>这步做完，把结果（是否已逐项开启）如实写进报告。</p>
+
+<h2>7. Step 4 — 重启 agent 并验收</h2>
+
+<h3>7.1 停掉旧 agent，确认死透</h3>
+<pre><code>pkill -f agent.py
+sleep 2
+pgrep -f agent.py || echo "旧进程已停止"</code></pre>
+<p>若 <code>pgrep</code> 仍有输出，再 <code>pkill -9 -f agent.py</code> 直到输出为空。</p>
+
+<h3>7.2 启动新 agent</h3>
+<pre><code>cd &lt;node-agent目录&gt;
+nohup python3 agent.py &gt;&gt; logs/nohup.log 2&gt;&amp;1 &amp;
+sleep 6
+pgrep -f agent.py   # 期望输出一个 PID</code></pre>
+
+<h3>7.3 验证注册成功</h3>
+<pre><code>tail -n 30 &lt;node-agent目录&gt;/logs/&lt;节点名&gt;.log</code></pre>
+<p>期望出现「<strong>平台确认注册成功</strong>」。同时让人在电脑控制台节点页确认 <span class="placeholder">{{节点名}}</span> 仍然在线（且是同一个节点，不是新冒出来的）。</p>
+
+<h2>8. 验收标准（全部满足，缺一条报告失败原因）</h2>
+<ul>
+  <li>☐ <code>grep -c '部署前清理上一轮残片' agent.py</code> 输出 ≥ 1（新代码已生效）</li>
+  <li>☐ <code>config.toml</code> 里 <code>name</code> 是 <span class="placeholder">{{节点名}}</span>、<code>node_id</code> 非空，<code>state/</code> 目录还在（身份未丢）</li>
+  <li>☐ <code>command -v llama-cli llama-server</code> 各打印一个路径</li>
+  <li>☐ <code>termux-wake-lock</code> 已执行（或已明确报告「不可用，需人装 Termux:API」）</li>
+  <li>☐ 第 6.2 节的人手动设置已逐项转告并确认</li>
+  <li>☐ <code>pgrep -f agent.py</code> 输出一个 PID</li>
+  <li>☐ 日志出现「平台确认注册成功」</li>
+  <li>☐ 电脑控制台节点页能看到 <span class="placeholder">{{节点名}}</span> 且在线</li>
+</ul>
+
+<h2>9. 故障排查表</h2>
+<table>
+  <tr><th>现象</th><th>原因</th><th>处置</th></tr>
+  <tr><td>找不到 agent.py</td><td>新包没传到位 / 路径太深</td><td><code>find /sdcard -maxdepth 5 -name agent.py</code> 查真实路径</td></tr>
+  <tr><td>覆盖后 config.toml 变空/变模板</td><td>误覆盖了身份</td><td>用 4.2 的备份恢复 <code>config.toml</code> 和 <code>state/</code>，重启</td></tr>
+  <tr><td>有 PID 但日志没有「平台确认注册成功」</td><td>token 不一致 / 平台地址错 / 平台没开</td><td>先 <code>curl</code> health；比对手机 config.toml 与平台 token</td></tr>
+  <tr><td>连上一会儿就掉线</td><td>息屏被杀</td><td>回到第 6 节补保活</td></tr>
+  <tr><td><code>llama-cli: command not found</code></td><td>没装 / 没进 PATH</td><td>回到 5.2~5.3；确认 <code>~/bin</code> 在 <code>$PATH</code></td></tr>
+  <tr><td>curl 平台 502 / proxy</td><td>手机设了 HTTP 代理</td><td><code>unset http_proxy https_proxy</code> 后重试</td></tr>
+  <tr><td>模型下载仍慢/卡死</td><td>保活没做全</td><td>重点查 6.2 省电策略是否真的改成了「无限制」</td></tr>
+</table>
+
+<h2>10. 约束（务必遵守）</h2>
+<ul>
+  <li><strong>不要修改</strong>任何 .py 的逻辑、<strong>不要</strong>覆盖 <code>config.toml</code> / <code>state/</code>。</li>
+  <li><strong>不要为了验收通过而伪造日志、假造输出或跳过失败步骤。</strong></li>
+  <li>失败时最多重试 2 次，之后停在原地报告真实原因和完整日志。</li>
+  <li>每一步的真实输出都要给人，不要只说「已完成」。</li>
+</ul>
+
+<h2>附 A — 给「人」（平台侧）的两点提醒（不在 Codex 手机任务内）</h2>
+<ul>
+  <li><strong>模型「自检命令」要用 <code>{model_path}</code> 占位符</strong>，例如：<code>llama-cli -m {model_path} -p hi -n 4</code>。Agent 会把 <code>{model_path}</code> 替换成手机上真实的落盘路径，不要写死路径。</li>
+  <li><strong>创建「服务」时，<code>-m</code> 指向的模型路径是手机上的真实路径</strong>，形如 <code>~/node-agent/models/&lt;模型文件名&gt;.gguf</code>（Agent 会把模型下到 models 目录）。命令名用 <code>llama-server</code>（或与手机二进制一致的名字，第 5.3 节已保证新旧名都可用）。</li>
+</ul>
+
+</body>
+</html>

@@ -9,14 +9,14 @@ $PidFile = Join-Path $Root '.running.pids'
 
 # 回收策略（两级，避免漏杀）：
 #   1) 优先按 .running.pids 精确回收（最安全，不误伤）
-#   2) 若上一步没找到任何进程，回落到按命令行特征匹配
-#      —— 覆盖「手工启动」「PID 文件过期」「外层 shell 被杀而 Python 子进程残留」等情况
+#   2) 若上一步没找到任何进程，回落到按进程名匹配
+#      —— 覆盖「手工启动」「PID 文件过期」「外层 shell 被杀而 Rust 二进制进程残留」等情况
+#      （v0.5.0-m5 起后端是 Rust 二进制，进程名固定为 edge-cluster-server / edge-cluster-agent）
 function Get-EdgeProcesses {
-    $rootEscaped = [regex]::Escape($Root)
-    @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
         Where-Object {
-            $_.CommandLine -match '(run\.py|agent\.py)' -and
-            ($_.CommandLine -match $rootEscaped -or $_.CommandLine -match 'edge-cluster')
+            $_.Name -eq 'edge-cluster-server.exe' -or
+            $_.Name -eq 'edge-cluster-agent.exe'
         })
 }
 

@@ -1,0 +1,30 @@
+[package]
+name = "edge-cluster-desktop"
+version = "0.5.0"
+description = "edge-cluster 平台的 Tauri 桌面壳：一键拉起平台服务并打开原生窗口"
+edition = "2021"
+rust-version = "1.77.2"
+
+# 这个 crate 不重写任何平台逻辑，只做两件事：
+#   1) 找到项目里的平台服务端二进制（server-rust 编译出的 edge-cluster-server），拉起来；
+#   2) 打开一个 WebView 窗口，指向 http://127.0.0.1:8000（平台单端口交付）。
+# 前端 React 代码、后端服务端逻辑一行都不动。
+
+[lib]
+name = "edge_cluster_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+url = "2"
+rfd = "0.15"
+
+# 发布版体积优先（桌面壳本身没什么好优化的，重点是别让二进制臃肿）
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

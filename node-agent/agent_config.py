@@ -20,7 +20,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore
 
-AGENT_VERSION = "0.1.0-m1"
+AGENT_VERSION = "0.5.0-m5"
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -205,6 +205,45 @@ def state_path(node_id: str) -> Path:
     return BASE_DIR / "state" / f"{safe}.json"
 
 
+def load_device_token(node_id: str) -> str:
+    """读取平台上次签发的设备 token。没有 / 读不到一律返回空串。"""
+    if not node_id:
+        return ""
+    try:
+        data = json.loads(state_path(f"token-{node_id}").read_text(encoding="utf-8"))
+        tok = data.get("device_token") if isinstance(data, dict) else None
+        return str(tok) if tok else ""
+    except Exception:
+        return ""
+
+
+def save_device_token(node_id: str, token: str) -> None:
+    """持久化设备 token。
+
+    **单独一个文件**（token-<node_id>.json），不并进 by-name / by-id 的实例状态：
+    那两个文件是**身份**（我是谁），这个是**凭据**（我凭什么进门）。
+    混在一起的话，一次身份回写就可能顺手把凭据抹掉，设备下次握手直接失败。
+
+    写失败不影响运行 —— 共享 token 仍是有效退路，这里绝不因为存不下凭据
+    就让 Agent 起不来。
+    """
+    if not (node_id and token):
+        return
+    try:
+        p = state_path(f"token-{node_id}")
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps({"node_id": node_id, "device_token": token}, indent=2),
+            encoding="utf-8",
+        )
+        try:
+            os.chmod(p, 0o600)  # 凭据文件不该对同机其他用户可读
+        except Exception:
+            pass  # Windows 上 chmod 语义有限，忽略
+    except Exception as exc:
+        print(f"[config] 保存设备 token 失败（不影响运行）: {exc}")
+
+
 def load_instance_state(name: str) -> dict[str, Any]:
     """按名称读取实例状态（用于恢复上次的 node_id）。"""
     if not name:
@@ -274,3 +313,72 @@ def local_ip() -> str:
             return socket.gethostbyname(socket.gethostname())
         except Exception:
             return "127.0.0.1"
+
+
+# --------------------------------------------------------------- 托管服务状态
+# 需求 §7：「设备重启后，设置了 Auto Start 的模型 Runtime 自动恢复」。
+# 恢复的前提是"重启前是什么样"得先活下来 —— 进程句柄随进程消失，
+# 但"该跑什么、该不该自动起来"必须落盘，否则 Agent 一重启就全忘了。
+
+
+def services_path(node_id: str) -> Path:
+    """托管服务状态文件。与身份 / 凭据分开存，理由同上：三件事互不牵连。"""
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", node_id) or "default"
+    return BASE_DIR / "state" / f"services-{safe}.json"
+
+
+def load_services(node_id: str) -> dict[str, dict[str, Any]]:
+    """读回托管服务记录。读不到 / 坏了都返回空 dict（当作"本来就没跑过"）。"""
+    if not node_id:
+        return {}
+    try:
+        data = json.loads(services_path(node_id).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    items = data.get("services") if isinstance(data, dict) else None
+    if not isinstance(items, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for sid, rec in items.items():
+        if isinstance(rec, dict) and rec.get("command"):
+            out[str(sid)] = rec
+    return out
+
+
+def save_services(node_id: str, records: dict[str, dict[str, Any]]) -> None:
+    """落盘托管服务记录。
+
+    写 command / args / auto_restart / auto_start / restart_count，外加 pid。
+    pid **只用于清理上一次遗留的子进程**（Agent 被强杀时子进程会活下来），
+    不能用来判断服务"是否在运行" —— 那必须靠进程句柄，句柄是跨不了重启的。
+    """
+    if not node_id:
+        return
+    safe_records = {
+        str(sid): {
+            "command": str(rec.get("command") or ""),
+            "args": [str(x) for x in (rec.get("args") or [])],
+            "auto_restart": bool(rec.get("auto_restart")),
+            "auto_start": bool(rec.get("auto_start")),
+            "restart_count": int(rec.get("restart_count") or 0),
+            # pid 只用于**清理上一次留下的进程**，绝不用于判断"它是不是还活着"。
+            # 必须记：服务子进程跑在独立会话里，Agent 被强杀时它们不会跟着死，
+            # 下次恢复直接再拉一遍就会撞端口（新进程绑定失败立刻退出，
+            # 表现成"服务恢复不了/反复重启"，而真凶是一个没人认领的旧进程）。
+            "pid": int(rec["proc"].pid) if rec.get("proc") is not None
+                   and getattr(rec["proc"], "pid", None) else 0,
+        }
+        for sid, rec in records.items()
+        if rec.get("command")
+    }
+    try:
+        p = services_path(node_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps({"node_id": node_id, "services": safe_records}, indent=2),
+            encoding="utf-8",
+        )
+        tmp.replace(p)  # 原子替换：写一半掉电不会留下半个 JSON
+    except Exception as exc:
+        print(f"[config] 保存服务状态失败（不影响运行）: {exc}")

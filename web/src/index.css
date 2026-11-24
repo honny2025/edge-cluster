@@ -1,3 +1,8 @@
+/* ==========================================================================
+   全局科技感主题 —— 深空蓝底 + 青色霓虹 + 玻璃拟态 + 立体阴影
+   集中在此文件，一次改造全站；后端与业务逻辑零改动。
+   ========================================================================== */
+
 * {
   box-sizing: border-box;
 }
@@ -11,17 +16,114 @@ body,
 }
 
 body {
-  background: #14181f;
   color: #e6edf3;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* 深空底色 + 两团霓虹光晕 + 极淡网格，营造"操作台"纵深 */
+  background-color: #0b0f17;
+  background-image:
+    radial-gradient(1100px 620px at 82% -12%, rgba(56, 189, 248, 0.13), transparent 60%),
+    radial-gradient(900px 560px at 2% 108%, rgba(99, 102, 241, 0.13), transparent 60%),
+    radial-gradient(720px 420px at 50% 55%, rgba(34, 211, 238, 0.05), transparent 70%),
+    linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+  background-size: auto, auto, auto, 44px 44px, 44px 44px;
+  background-attachment: fixed;
 }
 
 .mono {
   font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
 }
+.mono,
+.ant-table-cell .mono {
+  font-variant-numeric: tabular-nums;
+}
 
-/* 状态点：在线绿 / 离线红 / 从未上线灰 —— 醒目且不依赖颜色单通道 */
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.32), rgba(99, 102, 241, 0.32));
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.55), rgba(99, 102, 241, 0.55));
+  background-clip: padding-box;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.32);
+}
+
+/* ---------- 卡片：玻璃拟态 + 立体阴影 + 霓虹描边 ----------
+   用 !important 覆盖各页面内联的 CARD_STYLE，保证全站一致。 */
+.ant-card {
+  background: linear-gradient(165deg, rgba(42, 54, 74, 0.92), rgba(18, 24, 35, 0.97)) !important;
+  border: 1px solid rgba(56, 189, 248, 0.16) !important;
+  border-radius: 12px !important;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease !important;
+}
+.ant-card:hover {
+  border-color: rgba(56, 189, 248, 0.45) !important;
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.52),
+    0 0 0 1px rgba(56, 189, 248, 0.14),
+    0 0 26px rgba(56, 189, 248, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+.ant-card-head {
+  border-bottom: 1px solid rgba(56, 189, 248, 0.12) !important;
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.07), rgba(56, 189, 248, 0)) !important;
+}
+/* 卡片标题前的霓虹竖条，强化"模块感" */
+.ant-card-head-title::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  margin-right: 8px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #38bdf8, #6366f1);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+  vertical-align: -2px;
+}
+
+/* ---------- 表格 ---------- */
+.ant-table {
+  background: transparent !important;
+}
+.ant-table-thead > tr > th {
+  background: rgba(56, 189, 248, 0.07) !important;
+  color: #cfe6f5 !important;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.18) !important;
+}
+.ant-table-tbody > tr:hover > td {
+  background: rgba(56, 189, 248, 0.06) !important;
+}
+
+/* ---------- 主按钮：青色渐变 + 光晕 ---------- */
+.ant-btn-primary {
+  background: linear-gradient(180deg, #38bdf8, #2563eb) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35) !important;
+}
+.ant-btn-primary:hover {
+  box-shadow: 0 6px 20px rgba(56, 189, 248, 0.5) !important;
+  filter: brightness(1.05);
+}
+
+/* ---------- 状态点：在线绿 / 离线红 / 从未上线灰（增强光晕） ---------- */
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -31,32 +133,22 @@ body {
   vertical-align: middle;
 }
 .status-dot.online {
-  background: #52c41a;
-  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2);
+  background: #34d399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.9), 0 0 0 3px rgba(52, 211, 153, 0.2);
 }
 .status-dot.offline {
   background: #ff4d4f;
-  box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.2);
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.8), 0 0 0 3px rgba(255, 77, 79, 0.2);
 }
 .status-dot.never_seen {
   background: #8c8c8c;
   box-shadow: 0 0 0 3px rgba(140, 140, 140, 0.18);
 }
 
-/*
- * 离线节点整行压暗。
- * 目的：让"这台不在线"在一眼扫过时就成立，而不是要读者去比对状态标签 ——
- * 离线节点上残留的任何数值都容易被误读成"当前值"。
- */
+/* 离线节点整行压暗（保留原语义，仅微调） */
 .row-offline {
   opacity: 0.62;
 }
 .row-offline td {
   background: rgba(255, 77, 79, 0.04) !important;
-}
-
-/* 数值/时间列等宽，避免刷新时宽度跳动造成视觉抖动 */
-.mono,
-.ant-table-cell .mono {
-  font-variant-numeric: tabular-nums;
 }

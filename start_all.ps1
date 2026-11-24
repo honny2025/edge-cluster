@@ -1,5 +1,5 @@
 ﻿# ============================================================================
-#  PC 端一键启动（Windows PowerShell）
+#  PC 端一键启动（Windows PowerShell，Rust 版）
 #
 #  用法：
 #    .\start_all.ps1                      # 起平台 + 2 个模拟节点
@@ -10,15 +10,16 @@
 #    .\start_all.ps1 -Port 9000           # 换平台端口（默认读 config.toml，即 8000）
 #
 #  ★ 可移植性说明（本脚本刻意做成「换一台电脑也能一样跑」）：
-#   * 运行时**自动探测**，不写死任何本机路径：优先环境变量 EDGE_PYTHON / EDGE_NODE，
-#     其次 WorkBuddy 托管运行时，最后系统 PATH；探测到的 Python 会校验版本 >= 3.10
-#   * 虚拟环境建在项目内 .venv —— 整个 edge-cluster 目录可整体拷贝到别的机器
-#   * pip 安装失败时自动改用清华镜像重试（国内网络更稳）
-#   * 启动前检查端口占用，被占用时给出明确提示，而不是静默失败
-#   * 不用 Start-Process 的 -RedirectStandard* 参数（见 Start-Detached 注释：
-#     该参数在部分环境下会因 Path/PATH 重复键而直接抛错）
+#   * v0.5.0-m5 起后端整体用 Rust 重写，本脚本拉起的是编译出的 Rust 二进制
+#     （server-rust 的 edge-cluster-server、node-agent-rust 的 edge-cluster-agent），
+#     不再依赖 Python / venv / pip。交付包已带编译好的二进制，无需任何工具链；
+#     只有改源码重新编译才需要 Rust 工具链（cargo）。
+#   * 二进制**自动探测**：target\release > target\debug > 目录平铺；
+#     找不到时自动 `cargo build --release`（首次较慢，之后秒过）。
+#   * 启动前检查端口占用，被占用时给出明确提示，而不是静默失败。
+#   * 不用 Start-Process 的 -RedirectStandard* 参数（见 Start-Detached 注释）。
 #   * 若本机设置了 HTTP_PROXY，脚本会为本地直连清空代理变量，
-#     否则 Agent 连 127.0.0.1 会被代理拒绝
+#     否则 Agent 连 127.0.0.1 会被代理拒绝。
 # ============================================================================
 
 param(
@@ -37,16 +38,18 @@ try {
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ServerDir = Join-Path $Root 'server'
-$AgentDir = Join-Path $Root 'node-agent'
+$ServerDir = Join-Path $Root 'server-rust'
+$AgentDir = Join-Path $Root 'node-agent-rust'
 $WebDir = Join-Path $Root 'web'
+$ServerBinName = 'edge-cluster-server'
+$AgentBinName = 'edge-cluster-agent'
 
 # ---------------------------------------------------------------- 平台端口探测
-# 优先命令行 -Port，其次读 server/config.toml，最后默认 8000
+# 优先命令行 -Port，其次读 server-rust/config.toml，最后默认 8000
 function Get-PlatformPort {
     param([int]$Override)
     if ($Override -gt 0) { return $Override }
-    $cfg = Join-Path $Root 'server\config.toml'
+    $cfg = Join-Path $Root 'server-rust\config.toml'
     if (Test-Path $cfg) {
         $hit = Select-String -Path $cfg -Pattern '^\s*port\s*=\s*(\d+)' -ErrorAction SilentlyContinue |
                Select-Object -First 1
@@ -64,36 +67,43 @@ function Test-PortInUse {
     return ($conn.Count -gt 0)
 }
 
-# ---------------------------------------------------------------- 运行时探测
-# 可移植性：本脚本不写死任何本机路径，改为自动探测解释器。
-# 可用环境变量显式指定：EDGE_PYTHON / EDGE_NODE
+function Write-Step($msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
 
-function Resolve-Python {
-    if ($env:EDGE_PYTHON) {
-        if (Test-Path $env:EDGE_PYTHON) { return $env:EDGE_PYTHON }
-        throw "EDGE_PYTHON 指向的路径不存在：$env:EDGE_PYTHON"
+# ---------------------------------------------------------------- Rust 二进制探测
+# 依次尝试 release / debug / 平铺三种布局，兼容开发态与发布态。
+function Get-RustBinary {
+    param([Parameter(Mandatory = $true)][string]$Dir,
+          [Parameter(Mandatory = $true)][string]$Name)
+    $exe = $Name
+    if ($env:OS -eq 'Windows_NT') { $exe = "$Name.exe" }
+    foreach ($rel in @("target\release\$exe", "target\debug\$exe", $exe)) {
+        $cand = Join-Path $Dir $rel
+        if (Test-Path $cand) { return $cand }
     }
-    # 1) 托管 Python（WorkBuddy 环境，取版本号最高的一个）
-    $base = Join-Path $env:USERPROFILE '.workbuddy\binaries\python\versions'
-    if (Test-Path $base) {
-        $hit = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path (Join-Path $_.FullName 'python.exe') } |
-            ForEach-Object {
-                $v = [version]'0.0'
-                try { $v = [version]($_.Name -replace '[^0-9.]', '') } catch { }
-                [pscustomobject]@{ Dir = $_.FullName; Ver = $v }
-            } |
-            Sort-Object Ver -Descending | Select-Object -First 1
-        if ($hit) { return (Join-Path $hit.Dir 'python.exe') }
-    }
-    # 2) 系统 PATH
-    foreach ($n in @('python', 'python3', 'py')) {
-        $c = Get-Command $n -ErrorAction SilentlyContinue
-        if ($c) { return $c.Source }
-    }
-    throw "找不到 Python 3.10+。请先安装 Python，或用环境变量 EDGE_PYTHON 指定解释器路径。"
+    return $null
 }
 
+# 找到二进制；找不到就编译。返回完整路径。
+function Ensure-RustBinary {
+    param([Parameter(Mandatory = $true)][string]$Dir,
+          [Parameter(Mandatory = $true)][string]$Name,
+          [Parameter(Mandatory = $true)][string]$Label)
+    $bin = Get-RustBinary -Dir $Dir -Name $Name
+    if ($bin) { return $bin }
+    Write-Host "  未找到 $Label 二进制，正在编译（首次较慢，之后秒过）..." -ForegroundColor Yellow
+    # 注意：GNU 工具链（stable-x86_64-pc-windows-gnu）需要 MinGW 的链接器在 PATH 上，
+    # 例如 `export PATH=/d/MinGW64-16.2.0/bin:$PATH`。MSVC 工具链无需额外配置。
+    Push-Location $Dir
+    try {
+        cargo build --release
+        if ($LASTEXITCODE -ne 0) { throw "$Label 编译失败（exit $LASTEXITCODE）。请确认 cargo 已安装且工具链完整。" }
+    } finally { Pop-Location }
+    $bin = Get-RustBinary -Dir $Dir -Name $Name
+    if (-not $bin) { throw "$Label 编译后仍未找到二进制。" }
+    return $bin
+}
+
+# 探测 Node.js 目录（构建前端 / 起 Vite dev 用）。可移植，不写死路径。
 function Resolve-NodeDir {
     if ($env:EDGE_NODE) {
         if (Test-Path $env:EDGE_NODE) { return $env:EDGE_NODE }
@@ -111,56 +121,6 @@ function Resolve-NodeDir {
     return $null
 }
 
-# 校验 Python 版本：项目要求 3.10+（更早的版本会在类型注解处直接语法报错，
-# 报错信息很难懂，所以这里提前拦住并给出明确提示）
-function Assert-PythonVersion {
-    param([Parameter(Mandatory = $true)][string]$Python)
-    $v = & $Python -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $v) {
-        throw "无法执行 Python：$Python"
-    }
-    if ([version]$v -lt [version]'3.10') {
-        throw ("需要 Python 3.10 或更高版本，当前为 $v （$Python）。`n" +
-               "  请升级 Python 后重试，或用环境变量 EDGE_PYTHON 指定其他解释器。")
-    }
-    return $v
-}
-
-# 安装依赖：默认源失败时自动改用清华镜像重试（国内网络更稳）
-function Install-Reqs {
-    param(
-        [Parameter(Mandatory = $true)][string]$Python,
-        [Parameter(Mandatory = $true)][string]$ReqFile,
-        [string]$Label = 'Python'
-    )
-    # 某些电脑设置了失效的本机代理（例如 127.0.0.1:7897），会导致 pip
-    # 在尚未访问 PyPI 前就连接失败。可用 EDGE_KEEP_PROXY=1 保留代理。
-    $proxyBackup = @{}
-    if ($env:EDGE_KEEP_PROXY -ne '1') {
-        foreach ($n in 'HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','https_proxy','all_proxy') {
-            $proxyBackup[$n] = [Environment]::GetEnvironmentVariable($n)
-            [Environment]::SetEnvironmentVariable($n, $null)
-        }
-    }
-    try {
-    & $Python -m pip install --quiet --disable-pip-version-check -r $ReqFile
-    if ($LASTEXITCODE -eq 0) { return }
-
-    Write-Host "  $Label 依赖安装失败，改用清华镜像重试..." -ForegroundColor Yellow
-    & $Python -m pip install --quiet --disable-pip-version-check `
-        -i 'https://pypi.tuna.tsinghua.edu.cn/simple' -r $ReqFile
-    if ($LASTEXITCODE -ne 0) {
-        throw ("$Label 依赖安装失败（默认源与清华镜像都试过了）。`n" +
-               "  请检查网络后手工执行：`n" +
-               "    & `"$Python`" -m pip install -r `"$ReqFile`"")
-    }
-    } finally {
-        foreach ($n in $proxyBackup.Keys) { [Environment]::SetEnvironmentVariable($n, $proxyBackup[$n]) }
-    }
-}
-
-function Write-Step($msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
-
 # ---------------------------------------------------------------- 后台启动助手
 # 为什么不用 Start-Process -RedirectStandardOutput/-RedirectStandardError：
 #   在「环境里同时存在 Path 和 PATH 两个键」的机器上（装了 Git / Node / Cygwin，
@@ -170,7 +130,7 @@ function Write-Step($msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
 #   导致平台完全起不来。这两个参数会强制 UseShellExecute=false，从而踩中该缺陷。
 #
 #   而"把控制台输出重定向"这件事对这个项目本来就不必要：
-#   平台和 Agent 都自带文件日志（server/data/logs/ 与 node-agent/logs/）。
+#   平台和 Agent 都自带文件日志（server-rust/data/logs/ 与 node-agent-rust/logs/）。
 #   所以这里直接用窗口隐藏方式启动，既绕开缺陷，又保证进程完全脱离父窗口
 #   （关掉启动脚本的窗口不会带走服务）。
 function Start-Detached {
@@ -184,69 +144,17 @@ function Start-Detached {
     return [int]$p.Id
 }
 
-# ---------------------------------------------------------------- 环境准备
-# 虚拟环境放在项目内（.venv），随目录整体拷贝即可带走，不依赖任何外部路径
-$VenvDir = Join-Path $Root '.venv'
-$VenvPython = Join-Path $VenvDir 'Scripts\python.exe'
-
-Write-Step '检查 Python 运行环境'
-
-$VenvReady = $false
-if (Test-Path $VenvPython) {
-    # 已存在 .venv：先体检。它可能是从别的电脑拷过来的，指向一个本机不存在的
-    # 基础解释器（venv 里的 python.exe 靠 pyvenv.cfg 的 home 找标准库），
-    # 那种情况下 python 连启动都会失败（实测 exit code 103）。
-    try {
-        $venvVer = Assert-PythonVersion -Python $VenvPython
-        Write-Host "  复用已有虚拟环境 .venv (Python v$venvVer)"
-        $VenvReady = $true
-    } catch {
-        Write-Warning "  已有 .venv 不可用，将重建：$($_.Exception.Message)"
-        # 用「改名留存」而不是递归删除：
-        #   ① 改名是 O(1)，递归删几千个文件又慢又可能中途失败留下半残目录
-        #   ② 改名即使目录里有文件被占用也能成功
-        #   ③ 万一诊断错了，坏环境还在，可以自行回看
-        $broken = Join-Path $Root ('.venv.broken-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-        try {
-            Rename-Item -LiteralPath $VenvDir -NewName (Split-Path -Leaf $broken) -ErrorAction Stop
-            Write-Host "  已把损坏的环境改名保留为：$(Split-Path -Leaf $broken)（确认没用后可自行删除）"
-        } catch {
-            Write-Warning "  改名失败，退回直接删除"
-            Remove-Item -LiteralPath $VenvDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-
-if (-not $VenvReady) {
-    $BasePython = Resolve-Python
-    $baseVer = Assert-PythonVersion -Python $BasePython
-    Write-Host "  使用 Python：$BasePython (v$baseVer)"
-    Write-Host "  创建隔离虚拟环境 $VenvDir"
-    & $BasePython -m venv $VenvDir
-    if (-not (Test-Path $VenvPython)) {
-        throw "虚拟环境创建失败，未生成 $VenvPython。请确认 Python 安装完整（含 venv 模块）。"
-    }
-}
-
-Write-Host '  安装/校验后端依赖（已装则秒过）'
-Install-Reqs -Python $VenvPython -ReqFile (Join-Path $ServerDir 'requirements.txt') -Label '后端'
-Write-Host '  安装/校验 Agent 依赖'
-Install-Reqs -Python $VenvPython -ReqFile (Join-Path $AgentDir 'requirements.txt') -Label 'Agent'
-
+# ---------------------------------------------------------------- 前端
 # 本地直连必须绕过系统代理，否则 WS 连接会被代理以 502 拒绝
 $env:NO_PROXY = '127.0.0.1,localhost,10.0.0.0/8,192.168.0.0/16,172.16.0.0/12'
 $env:no_proxy = $env:NO_PROXY
 
-# ---------------------------------------------------------------- 前端
 if ($BuildWeb) {
     Write-Step '构建前端（web/dist）'
     $nd = Resolve-NodeDir
     if (-not $nd) {
         throw "构建前端需要 Node.js 18+。请先安装 Node，或用环境变量 EDGE_NODE 指定 node 所在目录。"
     }
-    # 直接调用 node 目录下的 npm.cmd，**不修改 $env:PATH** ——
-    # 给 $env:PATH 赋值会在某些环境下制造 "Path"/"PATH" 大小写重复键，
-    # 进而让后面 Start-Process 的重定向抛"已添加项"错误（见 Start-Detached 注释）。
     $npm = Join-Path $nd 'npm.cmd'
     if (-not (Test-Path $npm)) { $npm = 'npm' }
     Push-Location $WebDir
@@ -269,11 +177,12 @@ if (Test-PortInUse $PlatformPort) {
     exit 1
 }
 
-$serverLog = Join-Path $ServerDir 'data\logs'
-New-Item -ItemType Directory -Force -Path $serverLog | Out-Null
-# 显式传 --port：保证服务端实际监听端口与脚本探测/健康检查用的端口一致
-$serverPid = Start-Detached -Exe $VenvPython `
-    -Arguments @('run.py', '--port', "$PlatformPort") -WorkingDir $ServerDir
+$serverBin = Ensure-RustBinary -Dir $ServerDir -Name $ServerBinName -Label '服务端'
+New-Item -ItemType Directory -Force -Path (Join-Path $ServerDir 'data\logs') | Out-Null
+# Rust 服务端不支持 --port 参数，端口走 EDGE_SERVER__PORT 环境变量（优先级高于 config.toml）。
+# 显式设置，保证实际监听端口与脚本探测/健康检查用的端口一致。
+$env:EDGE_SERVER__PORT = "$PlatformPort"
+$serverPid = Start-Detached -Exe $serverBin -WorkingDir $ServerDir
 Write-Host "  平台进程 PID=$serverPid"
 Write-Host '  等待平台就绪...'
 
@@ -291,18 +200,19 @@ if ($ready) {
     Write-Warning '平台未在预期时间内就绪。'
     Write-Host '  排查办法：前台手工运行一次，就能看到具体报错 ——' -ForegroundColor Yellow
     Write-Host "    cd `"$ServerDir`""
-    Write-Host "    & `"$VenvPython`" run.py --port $PlatformPort"
+    Write-Host "    `"$serverBin`""
 }
 
 # ---------------------------------------------------------------- 模拟节点
 $agentPids = @()
 if (-not $NoNodes) {
+    $agentBin = Ensure-RustBinary -Dir $AgentDir -Name $AgentBinName -Label 'Agent'
     Write-Step "启动 $Nodes 个模拟节点"
     for ($i = 1; $i -le $Nodes; $i++) {
         $name = 'phone-{0:d2}' -f $i
         New-Item -ItemType Directory -Force -Path (Join-Path $AgentDir 'logs') | Out-Null
-        $nodePid = Start-Detached -Exe $VenvPython `
-            -Arguments @('agent.py', '--simulate', '--name', $name,
+        $nodePid = Start-Detached -Exe $agentBin `
+            -Arguments @('--simulate', '--name', $name,
                          '--platform-url', $PlatformUrl) `
             -WorkingDir $AgentDir
         $agentPids += $nodePid
@@ -347,9 +257,9 @@ if (-not $NoNodes) { Write-Host " 模拟节点   : $Nodes 个（phone-01 ...）"
 Write-Host ''
 Write-Host ' 停止全部   : .\stop_all.ps1'
 if ($PlatformPort -eq 8000) {
-    Write-Host ' 验收检查   : python docs\acceptance\m1_check.py --phase online'
+    Write-Host ' 验收检查   : .venv\Scripts\python.exe docs\acceptance\m1_check.py --phase online'
 } else {
-    Write-Host " 验收检查   : python docs\acceptance\m1_check.py --base $PlatformUrl --phase online"
+    Write-Host " 验收检查   : .venv\Scripts\python.exe docs\acceptance\m1_check.py --base $PlatformUrl --phase online"
 }
 Write-Host ''
 Write-Host ' 提示：进程已写入 .running.pids，可用 stop_all.ps1 统一回收。'

@@ -1,0 +1,61 @@
+# 平台服务端配置（Rust 版，wire 协议与 Python 版 v0.5.0-m5 一致）。
+# 所有可调项都在这里，且都能被环境变量覆盖（前缀 EDGE_，如 EDGE_SERVER__PORT=9000）。
+# 默认值开箱即用，不需要改这个文件也能跑起来。
+#
+# 迁移说明：此文件与 server/config.toml（Python 版）逐项一致，字段一一对应，
+# 由 Rust 服务端在启动时读取。迁移期间两份并存，Python 版退役后以本文件为准。
+
+[server]
+host = "0.0.0.0"                 # 监听地址
+port = 8000                      # HTTP / WebSocket 端口
+token = "edge-cluster-dev-token" # 共享 token（平台与 Agent 必须一致）
+discovery_port = 37020           # UDP 广播发现端口
+offline_threshold = 15           # 秒：心跳超时多久算离线
+offline_confirm_times = 3        # 防抖：连续 N 次巡检都超时才标记 offline
+heartbeat_interval = 5           # 秒：平台巡检周期（也是期望的 Agent 心跳间隔）
+service_probe_interval = 15      # 秒：模型服务探活周期
+# 指标分层保留：原始只留 2 天，旧数据被压成分钟级/小时级长期保留。
+# 5 秒一条的原始采样每节点每天 17280 条，留一年 = 每节点 630 万行，SQLite 扛不住。
+# 原始 2 天 + 分钟级 30 天 + 小时级 365 天，实测总行数不到原来的 1/60。
+# 设为 0 表示该层不清理。
+metric_raw_retention_days = 2       # 原始采样保留天数
+metric_minute_retention_days = 30   # 分钟级聚合保留天数
+metric_hour_retention_days = 365    # 小时级聚合保留天数
+metric_min_interval = 2          # 秒：同一节点两次入库指标的最小间隔（降采样保护）
+log_level = "INFO"
+deploy_concurrency = 4           # 同时给多少台手机下发模型的并发数（越大越快，但更吃磁盘/带宽）
+
+[data]
+db_path = "data/edge_cluster.db" # SQLite 文件
+models_dir = "data/models"       # 上传的模型文件存放目录
+logs_dir = "data/logs"           # 平台日志目录
+
+[web]
+serve_static = true              # 是否托管 web/dist 构建产物（单端口交付）
+
+[alerts]
+# 告警阈值（里程碑 2）。指标取不到（null）时一律不告警 —— 没有数据不等于异常。
+enabled = true                   # 总开关
+cpu_usage_warn = 85.0            # CPU 使用率 % ≥ 此值告警
+mem_usage_warn = 85.0            # 内存使用率 % ≥ 此值告警
+storage_usage_warn = 90.0        # 存储使用率 % ≥ 此值告警
+temperature_warn = 45.0          # 温度 ℃ ≥ 此值告警
+temperature_critical = 55.0      # 温度 ℃ ≥ 此值严重告警
+alarm_on_offline = true          # 节点离线是否产生告警
+probe_timeout_warn = 3           # 服务探活连续失败 N 次判定为 error（里程碑 4 用）
+
+[security]
+# 设备令牌与远程执行（Rust 版默认值，与 Python 版 SecurityConfig 一致）。
+enforce_device_token = false
+auto_issue_device_token = true
+warn_on_default_token = true
+remote_exec_enabled = false
+remote_exec_allowlist = ["ls", "cat", "df", "free", "uptime", "uname", "getprop", "ps", "id", "date"]
+remote_exec_timeout = 15
+
+[files]
+# 文件传输（Rust 版默认值，与 Python 版 FileConfig 一致）。
+staging_dir = "data/staging"
+max_transfer_mb = 4096
+transfer_ttl_minutes = 240
+max_list_entries = 2000

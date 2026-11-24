@@ -42,8 +42,15 @@ print(json.dumps({
     "log_level":    c.settings.server.log_level,
     "serve_static": c.settings.web.serve_static,
     "cpu_warn":     c.settings.alerts.cpu_usage_warn,
+    "raw_days":     c.settings.server.metric_raw_retention_days,
+    "minute_days":  c.settings.server.metric_minute_retention_days,
 }))
 """
+
+# 旧键兼容用例要一个临时 config.toml —— 仓库里的 config.toml 已经改用新键了，
+# 不造一份就测不到"老配置文件里还写着旧键"这个真实升级场景。
+LEGACY_TOML = ROOT / "server" / "_tmp_legacy_retention.toml"
+
 
 # (说明, 注入的环境变量, 期望至少命中的键值)
 CASES = [
@@ -60,6 +67,25 @@ CASES = [
     ("多个变量同时生效",
      {"EDGE_SERVER__PORT": "9100", "EDGE_SERVER__HOST": "1.2.3.4"},
      {"port": 9100, "host": "1.2.3.4"}),
+
+    # ---- 指标分层保留：新键优先级必须高于已废弃的旧键 ----
+    # 旧键 metric_retention_days 等价于原始层保留天数。若它的优先级高于新键，
+    # 老配置文件里那一行会静默盖掉用户显式设的新键 —— 改了却不生效，
+    # 而且只在"清理策略没按预期走"时才被发现。
+    ("新键 EDGE_SERVER__METRIC_RAW_RETENTION_DAYS 生效",
+     {"EDGE_SERVER__METRIC_RAW_RETENTION_DAYS": "5"}, {"raw_days": 5}),
+    ("旧键 EDGE_SERVER__METRIC_RETENTION_DAYS 单独出现时按原始层处理",
+     {"EDGE_SERVER__METRIC_RETENTION_DAYS": "9"}, {"raw_days": 9}),
+    ("旧键与新键同时出现：新键赢（旧键不得覆盖它）",
+     {"EDGE_SERVER__METRIC_RETENTION_DAYS": "9",
+      "EDGE_SERVER__METRIC_RAW_RETENTION_DAYS": "3"},
+     {"raw_days": 3}),
+    ("config.toml 里写了旧键 → 按原始层处理",
+     {"EDGE_CONFIG_FILE": "__LEGACY_TOML__"}, {"raw_days": 11}),
+    ("config.toml 写了旧键、环境变量给了新键 → 新键赢",
+     {"EDGE_CONFIG_FILE": "__LEGACY_TOML__",
+      "EDGE_SERVER__METRIC_RAW_RETENTION_DAYS": "4"},
+     {"raw_days": 4}),
 ]
 
 
@@ -68,6 +94,8 @@ def run_case(extra_env: dict[str, str]) -> dict:
            if not (k.upper().startswith("EDGE_") and "__" in k.upper())}
     env.update(extra_env)
     env["PYTHONIOENCODING"] = "utf-8"
+    if env.get("EDGE_CONFIG_FILE") == "__LEGACY_TOML__":
+        env["EDGE_CONFIG_FILE"] = str(LEGACY_TOML)
     r = subprocess.run(
         [sys.executable, "-c", PROBE, str(SERVER)],
         env=env, capture_output=True, text=True, encoding="utf-8", timeout=60,
@@ -79,6 +107,9 @@ def run_case(extra_env: dict[str, str]) -> dict:
 
 def main() -> int:
     print(f"配置层自检  ·  {SERVER / 'app' / 'config.py'}\n")
+    # 造一份"从旧版本升上来的 config.toml"：里面只有已废弃的旧键。
+    # 仓库自带的 config.toml 已经改用新键，不造这一份就测不到真实升级场景。
+    LEGACY_TOML.write_text("[server]\nmetric_retention_days = 11\n", encoding="utf-8")
     passed = failed = 0
     for label, extra, expect in CASES:
         try:
@@ -97,6 +128,7 @@ def main() -> int:
             print(f"  [PASS] {label}")
             passed += 1
 
+    LEGACY_TOML.unlink(missing_ok=True)
     total = passed + failed
     print(f"\n验收结果：{passed}/{total} 通过")
     return 1 if failed else 0

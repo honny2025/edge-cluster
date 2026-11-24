@@ -7,14 +7,14 @@
 
 /** 指标序列配色（CPU/GPU/NPU/内存/存储/温度/网络） */
 export const METRIC_COLORS = {
-  cpu: '#4f9cf9',
-  gpu: '#a76bf9',
-  npu: '#00d4a0',
-  mem: '#faad14',
-  storage: '#13c2c2',
-  temp: '#ff7875',
-  netRx: '#52c41a',
-  netTx: '#eb2f96',
+  cpu: '#38bdf8',
+  gpu: '#a78bfa',
+  npu: '#2dd4bf',
+  mem: '#fbbf24',
+  storage: '#22d3ee',
+  temp: '#fb7185',
+  netRx: '#4ade80',
+  netTx: '#f472b6',
 } as const
 
 /** 告警级别配色 */
@@ -25,12 +25,12 @@ export const ALERT_COLORS = {
 
 /** ECharts 通用暗色主题片段 */
 export const CHART_THEME = {
-  text: '#8c8c8c',
+  text: '#8a9bb0',
   textStrong: '#e6edf3',
-  axisLine: '#2a3444',
-  splitLine: '#222b38',
-  tooltipBg: '#1a212b',
-  tooltipBorder: '#2a3444',
+  axisLine: '#2b3a52',
+  splitLine: 'rgba(56, 189, 248, 0.08)',
+  tooltipBg: 'rgba(24, 32, 44, 0.96)',
+  tooltipBorder: 'rgba(56, 189, 248, 0.25)',
 } as const
 
 /** 字体：等宽用于数值/ID，保证列对齐不跳动 */
